@@ -62,10 +62,10 @@ function PlanPage() {
           <h1 className="text-4xl font-bold sm:text-5xl">
             Your <span className="text-gradient">Personalized Career Plan</span>
           </h1>
-          <p className="mt-3 flex flex-wrap items-center gap-2 text-muted-foreground">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-muted-foreground">
             Target role:
             <Badge className="bg-primary/15 text-primary hover:bg-primary/20">{role}</Badge>
-          </p>
+          </div>
         </header>
 
         <section className="panel mt-8 grid gap-6 p-6 sm:grid-cols-2 lg:grid-cols-4">
