@@ -18,6 +18,8 @@ import {
 } from "@/lib/mock-data";
 import { useProfile } from "@/lib/profile-store";
 
+import { RequireAuth } from "@/components/auth/require-auth";
+
 export const Route = createFileRoute("/analysis")({
   head: () => ({
     meta: [
@@ -34,7 +36,11 @@ export const Route = createFileRoute("/analysis")({
       },
     ],
   }),
-  component: AnalysisPage,
+  component: () => (
+    <RequireAuth>
+      <AnalysisPage />
+    </RequireAuth>
+  ),
 });
 
 function AnalysisPage() {
