@@ -43,7 +43,7 @@ export function AuthField({
 }: {
   id: string;
   label: string;
-  error?: string | null;
+  error?: string | null | undefined;
   children: ReactNode;
 }) {
   return (

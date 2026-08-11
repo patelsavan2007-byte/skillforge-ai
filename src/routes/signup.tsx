@@ -38,7 +38,7 @@ export const Route = createFileRoute("/signup")({
   component: SignupPage,
 });
 
-type Errors = Partial<Record<"name" | "email" | "password" | "confirm", string>>;
+type Errors = Partial<Record<"name" | "email" | "password" | "confirm", string | undefined>>;
 
 function SignupPage() {
   const navigate = useNavigate();
