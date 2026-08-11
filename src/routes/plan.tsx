@@ -122,19 +122,23 @@ function PlanPage() {
                     }`}
                   >
                     <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="font-display text-lg font-semibold">
-                        {step.status === "current" ? "🔥 " : ""}
+                      <h3 className="flex items-center gap-2 font-display text-lg font-semibold">
+                        {step.status === "current" && (
+                          <Flame className="size-4 text-accent" />
+                        )}
                         {step.title}
                       </h3>
                       <Badge variant="secondary">{step.difficulty}</Badge>
-                      <Badge variant="outline" className="text-muted-foreground">
-                        {step.duration}
-                      </Badge>
-                      {step.status === "done" && (
+                      {step.status === "done" ? (
                         <Badge className="bg-success/15 text-success hover:bg-success/20">
                           Completed
                         </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          {step.duration}
+                        </Badge>
                       )}
+
                     </div>
                     <p className="mt-3 text-sm text-muted-foreground">
                       <span className="text-foreground/80">Why: </span>
