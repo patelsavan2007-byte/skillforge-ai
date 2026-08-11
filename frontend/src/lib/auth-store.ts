@@ -1,20 +1,14 @@
 import { useEffect, useState } from "react";
 
-/**
- * Frontend-only auth session layer.
- *
- * There is no backend in this project yet. Every function below is the single
- * place to swap in real API calls (FastAPI) later — the UI never talks to
- * storage directly.
- */
-
 export type AuthUser = {
   id: string;
   name: string;
   email: string;
-  provider: "password" | "google";
+  profile_picture?: string;
+  provider?: "password" | "google";
 };
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const KEY = "skillforge-auth";
 const USERS_KEY = "skillforge-auth-users";
 
@@ -49,13 +43,44 @@ export function getSession(): AuthUser | null {
   }
 }
 
-function setSession(user: AuthUser) {
-  localStorage.setItem(KEY, JSON.stringify(user));
+function setSession(user: AuthUser | null) {
+  if (user) {
+    localStorage.setItem(KEY, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(KEY);
+  }
   emit();
 }
 
 function delay(ms = 700) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+export async function fetchCurrentUser(): Promise<AuthUser | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.authenticated && data.user) {
+        const user: AuthUser = {
+          id: data.user.id,
+          name: data.user.name,
+          email: data.user.email,
+          profile_picture: data.user.profile_picture || "",
+          provider: "google",
+        };
+        setSession(user);
+        return user;
+      }
+    }
+  } catch (err) {
+    console.warn("Backend auth check error:", err);
+  }
+  return getSession();
 }
 
 export async function signIn(email: string, password: string): Promise<AuthUser> {
@@ -94,23 +119,8 @@ export async function signUp(
   return safe;
 }
 
-export async function signInWithGoogle(): Promise<AuthUser> {
-  await delay(900);
-  const email = "student@gmail.com";
-  const users = readUsers();
-  let user = users.find((u) => u.email === email);
-  if (!user) {
-    user = {
-      id: crypto.randomUUID(),
-      name: "Google Student",
-      email,
-      provider: "google",
-    };
-    writeUsers([...users, user]);
-  }
-  const { password: _pw, ...safe } = user;
-  setSession(safe);
-  return safe;
+export function signInWithGoogle(): void {
+  window.location.href = `${API_BASE_URL}/api/auth/google/login`;
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
@@ -120,28 +130,50 @@ export async function requestPasswordReset(email: string): Promise<void> {
   }
 }
 
-export function signOut() {
-  localStorage.removeItem(KEY);
-  emit();
+export async function signOut(): Promise<void> {
+  try {
+    await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (err) {
+    console.warn("Backend logout error:", err);
+  }
+  setSession(null);
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => getSession());
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const sync = () => setUser(getSession());
-    sync();
-    setReady(true);
+    let active = true;
+
+    async function checkAuth() {
+      const current = await fetchCurrentUser();
+      if (active) {
+        setUser(current);
+        setReady(true);
+      }
+    }
+
+    checkAuth();
+
+    const sync = () => {
+      if (active) setUser(getSession());
+    };
+
     listeners.add(sync);
     window.addEventListener("storage", sync);
+
     return () => {
+      active = false;
       listeners.delete(sync);
       window.removeEventListener("storage", sync);
     };
   }, []);
 
-  return { user, ready };
+  return { user, ready, refreshUser: fetchCurrentUser };
 }
 
 export function validateEmail(email: string) {
@@ -157,3 +189,4 @@ export function validatePassword(password: string) {
     return "Use at least one letter and one number.";
   return null;
 }
+

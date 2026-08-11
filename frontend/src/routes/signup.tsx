@@ -12,38 +12,42 @@ import {
 } from "@/components/auth/auth-layout";
 import { PasswordInput } from "@/components/auth/password-input";
 import {
-  requestPasswordReset,
-  signIn,
   signInWithGoogle,
+  signUp,
   useAuth,
   validateEmail,
+  validatePassword,
 } from "@/lib/auth-store";
 
-export const Route = createFileRoute("/login")({
+export const Route = createFileRoute("/signup")({
   head: () => ({
     meta: [
-      { title: "Sign In — SkillForge AI" },
+      { title: "Create Your Account — SkillForge AI" },
       {
         name: "description",
         content:
-          "Sign in to SkillForge AI and continue your personalized journey toward becoming job-ready.",
+          "Create a free SkillForge AI account and start building the skills you need for your dream career.",
       },
-      { property: "og:title", content: "Sign In — SkillForge AI" },
+      { property: "og:title", content: "Create Your Account — SkillForge AI" },
       {
         property: "og:description",
-        content: "Continue your journey toward becoming job-ready with SkillForge AI.",
+        content: "Start building the skills you need for your dream career.",
       },
     ],
   }),
-  component: LoginPage,
+  component: SignupPage,
 });
 
-function LoginPage() {
+type Errors = Partial<Record<"name" | "email" | "password" | "confirm", string | undefined>>;
+
+function SignupPage() {
   const navigate = useNavigate();
   const { user, ready } = useAuth();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errors, setErrors] = useState<{ email?: string | undefined; password?: string | undefined }>({});
+  const [confirm, setConfirm] = useState("");
+  const [errors, setErrors] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
@@ -53,68 +57,61 @@ function LoginPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const next = {
+    const next: Errors = {
+      name: name.trim().length < 2 ? "Please enter your full name." : undefined,
       email: validateEmail(email) ?? undefined,
-      password: password ? undefined : "Password is required.",
+      password: validatePassword(password) ?? undefined,
+      confirm: confirm !== password ? "Passwords do not match." : undefined,
     };
     setErrors(next);
-    if (next.email || next.password) return;
+    if (Object.values(next).some(Boolean)) return;
 
     setSubmitting(true);
     try {
-      const u = await signIn(email, password);
-      toast.success(`Welcome back, ${u.name.split(" ")[0]}!`);
+      await signUp(name.trim(), email, password);
+      toast.success("Account created — welcome to SkillForge AI!");
       navigate({ to: "/", replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not sign you in.");
+      toast.error(err instanceof Error ? err.message : "Could not create your account.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function onGoogle() {
+  function onGoogle() {
     setGoogleLoading(true);
-    try {
-      await signInWithGoogle();
-      toast.success("Signed in with Google.");
-      navigate({ to: "/", replace: true });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Google sign-in failed.");
-    } finally {
-      setGoogleLoading(false);
-    }
-  }
-
-  async function onForgot() {
-    const emailError = validateEmail(email);
-    if (emailError) {
-      setErrors((p) => ({ ...p, email: "Enter your email first, then tap reset." }));
-      return;
-    }
-    try {
-      await requestPasswordReset(email);
-      toast.success("Password reset link sent to your inbox.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not send reset link.");
-    }
+    signInWithGoogle();
   }
 
   const busy = submitting || googleLoading;
 
   return (
     <AuthLayout
-      title="Welcome back"
-      subtitle="Continue your journey toward becoming job-ready."
+      title="Create your account"
+      subtitle="Start building the skills you need for your dream career."
       footer={
         <>
-          Don&apos;t have an account?{" "}
-          <Link to="/signup" className="font-medium text-primary hover:underline">
-            Create an account
+          Already have an account?{" "}
+          <Link to="/login" className="font-medium text-primary hover:underline">
+            Sign in
           </Link>
         </>
       }
     >
       <form onSubmit={onSubmit} noValidate className="space-y-5">
+        <AuthField id="name" label="Full name" error={errors.name}>
+          <Input
+            id="name"
+            autoComplete="name"
+            placeholder="Your full name"
+            value={name}
+            aria-invalid={!!errors.name}
+            aria-describedby={errors.name ? "name-error" : undefined}
+            onChange={(e) => setName(e.target.value)}
+            className="h-11"
+          />
+        </AuthField>
+
         <AuthField id="email" label="Email address" error={errors.email}>
           <Input
             id="email"
@@ -132,8 +129,8 @@ function LoginPage() {
         <AuthField id="password" label="Password" error={errors.password}>
           <PasswordInput
             id="password"
-            autoComplete="current-password"
-            placeholder="Enter your password"
+            autoComplete="new-password"
+            placeholder="Create a password"
             value={password}
             aria-invalid={!!errors.password}
             aria-describedby={errors.password ? "password-error" : undefined}
@@ -141,15 +138,17 @@ function LoginPage() {
           />
         </AuthField>
 
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onForgot}
-            className="text-xs font-medium text-primary transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            Forgot password?
-          </button>
-        </div>
+        <AuthField id="confirm" label="Confirm password" error={errors.confirm}>
+          <PasswordInput
+            id="confirm"
+            autoComplete="new-password"
+            placeholder="Confirm your password"
+            value={confirm}
+            aria-invalid={!!errors.confirm}
+            aria-describedby={errors.confirm ? "confirm-error" : undefined}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </AuthField>
 
         <button
           type="submit"
@@ -157,7 +156,7 @@ function LoginPage() {
           className="bg-gradient-accent glow inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:translate-y-0 disabled:opacity-60"
         >
           {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-          {submitting ? "Signing in…" : "Sign In"}
+          {submitting ? "Creating account…" : "Create Account"}
         </button>
       </form>
 

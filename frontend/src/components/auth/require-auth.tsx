@@ -39,8 +39,8 @@ function AuthBar() {
       <span className="hidden text-xs text-muted-foreground sm:inline">{user.email}</span>
       <button
         type="button"
-        onClick={() => {
-          signOut();
+        onClick={async () => {
+          await signOut();
           navigate({ to: "/login", replace: true });
         }}
         className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
