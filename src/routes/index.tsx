@@ -25,6 +25,8 @@ import {
 import { TARGET_ROLES } from "@/lib/mock-data";
 import { formatBytes, saveProfile } from "@/lib/profile-store";
 
+import { RequireAuth } from "@/components/auth/require-auth";
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
@@ -42,7 +44,11 @@ export const Route = createFileRoute("/")({
       },
     ],
   }),
-  component: Index,
+  component: () => (
+    <RequireAuth>
+      <Index />
+    </RequireAuth>
+  ),
 });
 
 const LOADING_STEPS = [
