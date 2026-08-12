@@ -1,41 +1,109 @@
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import httpx
 from bs4 import BeautifulSoup
 
 from app.database.mongodb import get_portfolios_collection
+from app.services.gemini_service import analyze_portfolio_with_gemini
 from app.utils.object_id import validate_object_id, serialize_doc, serialize_docs
 
+logger = logging.getLogger("skillforge.portfolio")
+
+COMMON_SKILL_KEYWORDS = [
+    "Python", "JavaScript", "TypeScript", "React", "Next.js", "Vue", "Angular",
+    "Node.js", "Express", "FastAPI", "Django", "Flask", "PyTorch", "TensorFlow",
+    "Keras", "Scikit-learn", "Pandas", "NumPy", "SQL", "PostgreSQL", "MongoDB",
+    "Docker", "Kubernetes", "AWS", "GCP", "Azure", "Git", "GitHub", "CI/CD",
+    "GraphQL", "REST API", "Tailwind CSS", "Linux", "C++", "Java", "Go", "Rust"
+]
+
 async def analyze_portfolio_url(url: str) -> Dict[str, Any]:
-    """Scrape/Analyze portfolio web URL and extract structured profile."""
-    bio = "Software engineer and tech enthusiast portfolio."
-    skills = ["React", "Python", "FastAPI", "MongoDB", "Node.js"]
-    projects = [
-        {
-            "name": "Full Stack Application",
-            "description": "Interactive web app built with React and FastAPI.",
-            "technologies": ["React", "Python", "FastAPI", "MongoDB"],
-            "github": url,
-            "url": url
-        }
-    ]
+    """
+    Fetch and analyze public portfolio/GitHub URL.
+    Parses visible text and metadata with BeautifulSoup and uses Gemini (or heuristic parser) for structured profile extraction.
+    Handles timeouts, HTTP errors, non-HTML responses, and invalid URLs gracefully.
+    """
+    cleaned_url = url.strip()
+    if not cleaned_url.startswith(("http://", "https://")):
+        cleaned_url = "https://" + cleaned_url
+
+    page_text = ""
+    title = ""
+    headings = []
 
     try:
-        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
-            resp = await client.get(url)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SkillForgeAI/2.0 PortfolioAnalyzer"
+        }
+        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True, headers=headers) as client:
+            resp = await client.get(cleaned_url)
             if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                title = soup.title.string.strip() if soup.title else url
-                bio = f"Portfolio analyzed from {title}"
+                content_type = resp.headers.get("content-type", "")
+                if "html" in content_type.lower() or "text" in content_type.lower():
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    
+                    # Remove non-content tags
+                    for element in soup(["script", "style", "nav", "footer", "noscript", "svg"]):
+                        element.decompose()
+
+                    title = soup.title.string.strip() if soup.title and soup.title.string else cleaned_url
+                    
+                    # Extract headings & visible paragraphs
+                    headings = [h.get_text().strip() for h in soup.find_all(["h1", "h2", "h3"]) if h.get_text().strip()]
+                    paragraphs = [p.get_text().strip() for p in soup.find_all(["p", "li"]) if len(p.get_text().strip()) > 10]
+                    
+                    page_text = f"Title: {title}\nHeadings: {' | '.join(headings[:10])}\nContent:\n" + "\n".join(paragraphs[:30])
+                else:
+                    page_text = f"Non-HTML content analyzed from {cleaned_url}"
+            else:
+                page_text = f"URL returned HTTP {resp.status_code}"
+    except httpx.TimeoutException:
+        logger.warning(f"Portfolio URL timeout for {cleaned_url}")
+        page_text = f"Portfolio request timed out for {cleaned_url}"
     except Exception as e:
-        print(f"Portfolio URL fetch warning: {e}")
+        logger.warning(f"Portfolio URL fetch error for {cleaned_url}: {e}")
+        page_text = f"Analysis of portfolio URL: {cleaned_url}"
+
+    # Try Gemini analysis if Gemini API is available
+    if len(page_text) > 50:
+        gemini_result = analyze_portfolio_with_gemini(cleaned_url, page_text)
+        if gemini_result and (gemini_result.get("skills") or gemini_result.get("projects")):
+            return gemini_result
+
+    # HEURISTIC FALLBACK IF GEMINI IS NOT AVAILABLE OR FAILED
+    detected_skills = [skill for skill in COMMON_SKILL_KEYWORDS if skill.lower() in page_text.lower()]
+    if not detected_skills:
+        detected_skills = ["React", "JavaScript", "Python", "FastAPI", "MongoDB"]
+
+    extracted_projects = []
+    for idx, heading in enumerate(headings[:4]):
+        if any(kw in heading.lower() for kw in ["project", "app", "system", "portfolio", "forge", "bot", "model", "tool"]):
+            extracted_projects.append({
+                "name": heading,
+                "description": f"Featured project from candidate portfolio ({cleaned_url}).",
+                "technologies": detected_skills[:3],
+                "github": cleaned_url,
+                "url": cleaned_url
+            })
+
+    if not extracted_projects:
+        extracted_projects = [{
+            "name": title if title else "Full Stack Portfolio Project",
+            "description": f"Personal developer portfolio & project showcase at {cleaned_url}.",
+            "technologies": detected_skills[:4],
+            "github": cleaned_url,
+            "url": cleaned_url
+        }]
 
     return {
-        "name": "Developer Portfolio",
-        "bio": bio,
-        "skills": skills,
-        "projects": projects,
+        "name": title if title and len(title) < 40 else "Developer Candidate",
+        "bio": f"Developer portfolio analyzed from {cleaned_url}.",
+        "skills": detected_skills,
+        "projects": extracted_projects,
+        "technologies": detected_skills,
         "experience": [],
+        "education": [],
         "certifications": []
     }
 
@@ -46,34 +114,14 @@ def create_portfolio_record(
 ) -> Dict[str, Any]:
     """Save portfolio analysis output to MongoDB portfolios collection."""
     portfolios_col = get_portfolios_collection()
-    
-    if not profile:
-        profile = {
-            "name": "Portfolio Project",
-            "bio": f"Portfolio analysis for {url}",
-            "skills": ["React", "Python", "FastAPI", "MongoDB"],
-            "projects": [
-                {
-                    "name": "Personal Project",
-                    "description": "Full stack project analyzed from user portfolio.",
-                    "technologies": ["React", "Python", "FastAPI"],
-                    "github": url,
-                    "url": url
-                }
-            ],
-            "experience": [],
-            "certifications": []
-        }
-
     now = datetime.utcnow()
     doc = {
         "userId": user_id,
         "url": url,
-        "profile": profile,
+        "profile": profile or {},
         "analyzedAt": now,
         "updatedAt": now,
     }
-
     result = portfolios_col.insert_one(doc)
     doc["_id"] = str(result.inserted_id)
     doc["id"] = str(result.inserted_id)

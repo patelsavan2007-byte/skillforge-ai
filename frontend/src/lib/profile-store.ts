@@ -1,74 +1,91 @@
 import { useEffect, useState } from "react";
 
-export type ExtractedPersonal = {
+export type UnifiedProfile = {
   name?: string;
-  email?: string;
-  phone?: string;
-  location?: string;
-};
-
-export type ExtractedEducation = {
-  degree?: string;
-  field?: string;
-  institution?: string;
-  startDate?: string;
-  endDate?: string;
-  sgpa?: number | null;
-  cgpa?: number | null;
-};
-
-export type ExtractedExperience = {
-  company?: string;
-  title?: string;
-  startDate?: string;
-  endDate?: string;
-  duration?: string;
-  description?: string;
-};
-
-export type ExtractedProject = {
-  name?: string;
-  description?: string;
-  technologies?: string[];
-  url?: string;
-};
-
-export type ExtractedResumeProfile = {
-  personal?: ExtractedPersonal;
-  education?: ExtractedEducation[];
-  experience?: ExtractedExperience[];
+  bio?: string;
+  education?: any[];
+  experience?: any[];
   skills?: string[];
+  projects?: { name?: string; description?: string; technologies?: string[]; url?: string; source?: string }[];
   certifications?: string[];
-  languages?: string[];
-  projects?: ExtractedProject[];
+  technologies?: string[];
+  achievements?: string[];
+  source?: {
+    resume: boolean;
+    portfolio: boolean;
+  };
 };
 
-export type StudentProfile = {
+export type SkillGapItem = {
+  skill: string;
+  importance?: string;
+  currentLevel?: number;
+  requiredLevel?: number;
+};
+
+export type CareerProfileData = {
+  id?: string;
+  targetRole: string;
+  careerMatches?: { role: string; score: number }[];
+  profileSummary?: string;
+  strongSkills?: string[];
+  developingSkills?: string[];
+  skillGaps?: SkillGapItem[];
+  careerReadiness: number;
+  missingTechnologies?: string[];
+  missingProjectExperience?: string[];
+  recommendedNextSkills?: string[];
+};
+
+export type RoadmapWeek = {
+  week: number;
+  title: string;
+  skills?: string[];
+  courses?: { title: string; provider?: string; url?: string; duration?: string; difficulty?: string }[];
+  project?: { title: string; description?: string; skills?: string[] };
+  completed?: boolean;
+};
+
+export type LearningPathData = {
+  id?: string;
+  targetRole: string;
+  durationWeeks?: number;
+  roadmap?: RoadmapWeek[];
+  courses?: { title: string; provider?: string; url?: string; duration?: string; difficulty?: string; skillAddressed?: string }[];
+  recommendedProjects?: { title: string; description?: string; technologies?: string[]; difficulty?: string }[];
+  certifications?: { name: string; provider?: string; priority?: string }[];
+  interviewPrep?: { topic: string; question: string; keyConcept?: string }[];
+  careerAdvice?: string[];
+};
+
+export type AnalysisPipelineResult = {
   resumeId?: string;
-  resumeName: string;
-  resumeSize: number;
-  portfolio: string;
-  linkedin: string;
+  portfolioId?: string;
+  resumeName?: string;
+  resumeSize?: number;
+  portfolio?: string;
+  linkedin?: string;
   role: string;
-  extractedProfile?: ExtractedResumeProfile;
+  unifiedProfile?: UnifiedProfile;
+  careerProfile?: CareerProfileData;
+  learningPath?: LearningPathData;
 };
 
 const KEY = "skillforge-profile";
 
-export function saveProfile(profile: StudentProfile) {
+export function saveProfile(profile: AnalysisPipelineResult) {
   if (typeof window === "undefined") return;
   sessionStorage.setItem(KEY, JSON.stringify(profile));
-  // Dispatch custom event to sync active listeners
   window.dispatchEvent(new Event("skillforge-profile-update"));
 }
 
-export function useProfile(): StudentProfile | null {
-  const [profile, setProfile] = useState<StudentProfile | null>(() => {
+export function useProfile(): AnalysisPipelineResult | null {
+  const [profile, setProfile] = useState<AnalysisPipelineResult | null>(() => {
     if (typeof window === "undefined") return null;
     const raw = sessionStorage.getItem(KEY);
     if (!raw) return null;
     try {
-      return JSON.parse(raw) as StudentProfile;
+      return JSON.parse(raw) as AnalysisPipelineResult;
     } catch {
       return null;
     }
@@ -79,7 +96,7 @@ export function useProfile(): StudentProfile | null {
       const raw = sessionStorage.getItem(KEY);
       if (raw) {
         try {
-          setProfile(JSON.parse(raw) as StudentProfile);
+          setProfile(JSON.parse(raw) as AnalysisPipelineResult);
         } catch {
           setProfile(null);
         }

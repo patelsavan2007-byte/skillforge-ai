@@ -24,11 +24,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TARGET_ROLES } from "@/lib/mock-data";
-import { formatBytes, saveProfile, ExtractedResumeProfile } from "@/lib/profile-store";
+import { formatBytes, saveProfile } from "@/lib/profile-store";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE_URL = import.meta.env["VITE_API_URL"] || "http://localhost:8000";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -55,11 +55,11 @@ export const Route = createFileRoute("/")({
 });
 
 const LOADING_STEPS = [
-  "Parsing your resume file (PDF/DOCX/TXT)…",
-  "Running Hugging Face oksomu/resume-ner model…",
-  "Extracting entities, academic scores & skills…",
-  "Structuring experience, projects & education…",
-  "Building your personalized profile & career roadmap…",
+  "Parsing candidate resume (PDF/DOCX/TXT)…",
+  "Scraping & analyzing developer portfolio URL…",
+  "Unifying Resume + Portfolio into a single student profile…",
+  "Comparing profile against target role requirements & skill gaps…",
+  "Generating personalized roadmap & AI career recommendations…",
 ];
 
 function Index() {
@@ -85,76 +85,71 @@ function Index() {
 
   async function analyze() {
     setErrorMsg(null);
+
+    const hasFile = Boolean(file);
+    const hasPortfolio = Boolean(portfolio && portfolio.trim().length > 0);
+
+    if (!hasFile && !hasPortfolio) {
+      setErrorMsg("Please upload a resume file OR provide a Portfolio/GitHub URL to run career analysis.");
+      return;
+    }
+
     setLoadingStep(0);
 
-    let extractedData: ExtractedResumeProfile | undefined = undefined;
-    let resumeId: string | undefined = undefined;
-
-    // Run UI loading animation steps
     const stepInterval = setInterval(() => {
       setLoadingStep((prev) => (prev < LOADING_STEPS.length - 1 ? prev + 1 : prev));
-    }, 600);
+    }, 700);
 
     try {
+      const formData = new FormData();
       if (file) {
-        const formData = new FormData();
         formData.append("file", file);
+      }
+      if (hasPortfolio) {
+        formData.append("portfolio_url", portfolio.trim());
+      }
+      formData.append("target_role", role);
 
-        const res = await fetch(`${API_BASE_URL}/api/resumes/upload`, {
-          method: "POST",
-          body: formData,
-          credentials: "include",
-        });
+      const res = await fetch(`${API_BASE_URL}/api/career-profiles/analyze`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
 
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || "Failed to process resume file on backend.");
-        }
-
-        const data = await res.json();
-        if (data.success && data.resume) {
-          resumeId = data.resume.id || data.resume._id;
-          extractedData = data.resume.profile;
-        }
-      } else {
-        // If no new file uploaded, try fetching latest active resume from backend
-        try {
-          const res = await fetch(`${API_BASE_URL}/api/resumes`, {
-            method: "GET",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success && data.resume) {
-              resumeId = data.resume.id || data.resume._id;
-              extractedData = data.resume.profile;
-            }
-          }
-        } catch {
-          // ignore fallback error
-        }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to execute career analysis pipeline on backend.");
       }
 
+      const responseJson = await res.json();
       clearInterval(stepInterval);
       setLoadingStep(LOADING_STEPS.length - 1);
 
-      // Persist profile state
-      saveProfile({
-        resumeId,
-        resumeName: fileMeta?.name ?? "Resume.pdf",
-        resumeSize: fileMeta?.size ?? 184320,
-        portfolio,
-        linkedin,
-        role,
-        extractedProfile: extractedData,
-      });
+      if (responseJson.success && responseJson.data) {
+        const pipelineData = responseJson.data;
 
-      setTimeout(() => navigate({ to: "/analysis" }), 400);
+        // Persist complete backend unified profile & recommendations
+        saveProfile({
+          resumeId: pipelineData.resumeId,
+          portfolioId: pipelineData.portfolioId,
+          resumeName: fileMeta?.name ?? "Resume.pdf",
+          resumeSize: fileMeta?.size ?? 184320,
+          portfolio: portfolio.trim(),
+          linkedin: linkedin.trim(),
+          role: role,
+          unifiedProfile: pipelineData.unifiedProfile,
+          careerProfile: pipelineData.careerProfile,
+          learningPath: pipelineData.learningPath,
+        });
+
+        setTimeout(() => navigate({ to: "/analysis" }), 400);
+      } else {
+        throw new Error(responseJson.message || "Failed to parse analysis output.");
+      }
     } catch (err: any) {
       clearInterval(stepInterval);
       setLoadingStep(-1);
-      setErrorMsg(err.message || "An error occurred while uploading your resume.");
+      setErrorMsg(err.message || "An error occurred while analyzing your career profile.");
     }
   }
 
@@ -183,7 +178,7 @@ function Index() {
             <div className="mb-6 flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-destructive">
               <AlertCircle className="mt-0.5 size-5 shrink-0" />
               <div className="text-sm">
-                <p className="font-semibold">Resume Processing Error</p>
+                <p className="font-semibold">Analysis Pipeline Error</p>
                 <p className="mt-1 opacity-90">{errorMsg}</p>
               </div>
             </div>
@@ -238,7 +233,7 @@ function Index() {
                   }`}
                 >
                   <UploadCloud className="mx-auto size-8 text-primary" />
-                  <p className="mt-3 text-sm font-medium">Drag & drop your resume file here</p>
+                  <p className="mt-3 text-sm font-medium">Drag & drop your resume file here (optional)</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     PDF, DOCX, or TXT · max 10 MB
                   </p>
@@ -259,7 +254,7 @@ function Index() {
             <div>
               <SectionLabel icon={<Github className="size-4" />} text="Portfolio" />
               <Label htmlFor="portfolio" className="mt-3 mb-2 block text-xs text-muted-foreground">
-                GitHub / Portfolio URL
+                GitHub / Portfolio URL (optional)
               </Label>
               <Input
                 id="portfolio"
@@ -298,7 +293,7 @@ function Index() {
                 </SelectContent>
               </Select>
               <p className="mt-4 rounded-lg border border-border bg-surface-2/60 p-3 text-xs leading-relaxed text-muted-foreground">
-                We analyze your resume with Hugging Face <span className="font-semibold text-primary">oksomu/resume-ner</span> to detect your skills, education, and experience.
+                We analyze your resume & portfolio with Gemini AI to generate a unified student profile, detect skill gaps, and build a personalized roadmap.
               </p>
             </div>
           </div>
@@ -312,7 +307,7 @@ function Index() {
             {analyzing ? (
               <>
                 <Loader2 className="size-5 animate-spin" />
-                Analyzing with Hugging Face NER…
+                Analyzing Career Profile with Gemini AI…
               </>
             ) : (
               <>
@@ -348,16 +343,16 @@ function Index() {
         <section className="mt-14 grid gap-4 sm:grid-cols-3">
           {[
             {
-              t: "Hugging Face NER Extraction",
-              d: "Pretrained oksomu/resume-ner extracts skills, degree, field, company & experience.",
+              t: "Unified Student Profile",
+              d: "Merges Resume text and Portfolio web scraping into a single deduplicated candidate profile.",
             },
             {
-              t: "Academic & Project Parser",
-              d: "Deterministic SGPA/CGPA parsing + project section detection.",
+              t: "Deterministic & AI Gap Analysis",
+              d: "Compares your skills against actual target role requirements and calculates readiness score.",
             },
             {
-              t: "Editable Profile & Roadmap",
-              d: "Review and edit extracted profile before personalized career recommendation.",
+              t: "Personalized Action Roadmap",
+              d: "Generates custom learning paths, courses, hands-on projects, and interview questions.",
             },
           ].map((f) => (
             <div key={f.t} className="rounded-xl border border-border bg-surface/70 p-5">

@@ -10,3 +10,8 @@ pydantic
 pydantic-settings
 python-dotenv
 itsdangerous
+mongomock
+google-genai
+python-multipart
+pandas
+numpy

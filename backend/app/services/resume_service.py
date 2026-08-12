@@ -18,7 +18,7 @@ def process_resume_and_extract(
     file_bytes: Optional[bytes] = None,
     raw_text: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Execute text extraction -> Hugging Face oksomu/resume-ner -> structured profile extraction."""
+    """Execute text extraction -> Gemini / Hugging Face NER -> structured profile extraction."""
     text = raw_text or ""
     if file_bytes and not text:
         text = parse_file_to_text(file_name, file_bytes)
@@ -26,11 +26,15 @@ def process_resume_and_extract(
     if not text.strip():
         raise ValueError("Resume text is empty or could not be extracted.")
 
-    # 1. Run Hugging Face oksomu/resume-ner
+    # 1. Try Gemini Resume Parser
+    from app.services.gemini_service import analyze_resume_with_gemini
+    gemini_profile = analyze_resume_with_gemini(text)
+    if gemini_profile and (gemini_profile.get("skills") or gemini_profile.get("education") or gemini_profile.get("experience")):
+        return gemini_profile
+
+    # 2. Fallback to Hugging Face oksomu/resume-ner + heuristic extractor
     ner_service = get_ner_service()
     ner_entities = ner_service.extract_entities(text)
-
-    # 2. Convert NER entities & text into structured JSON profile
     structured_profile = build_structured_resume(text, ner_entities)
     return structured_profile
 

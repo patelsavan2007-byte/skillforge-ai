@@ -36,6 +36,11 @@ def get_current_user_id(request: Request) -> str:
 
 @router.get("/google/login")
 async def google_login(request: Request):
+    if not settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="Google OAuth is not configured. GOOGLE_CLIENT_ID is missing from server environment."
+        )
     state = generate_oauth_state()
     request.session["oauth_state"] = state
     auth_url = get_google_auth_url(state)

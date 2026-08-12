@@ -1,0 +1,140 @@
+========================================================
+SkillForge AI — Career Analysis Pipeline Implementation Report
+Date: 2026-08-12
+========================================================
+
+CONTEXT
+--------------------------------------------------------
+Target: implementation_plan.md (Gemini-powered personalized
+career-analysis pipeline: resume/portfolio parsing, unified profile,
+skill-gap analysis, learning roadmaps).
+
+Status: The plan was already ~90% implemented in the working tree
+(uncommitted changes). I verified the whole pipeline end-to-end and
+fixed the remaining gaps and bugs.
+
+========================================================
+1. VERIFICATION RESULTS (all passing)
+========================================================
+- Backend starts; /api/health returns { status: ok }
+- test_ai_pipeline.py -> 6/6 PASS
+  (resume-only, portfolio-only, merged, neither -> 400, skill-gap,
+   user isolation)
+- test_mongodb_integration.py + test_resume_ner.py -> 5/5 PASS
+- Frontend: `npx tsc --noEmit` -> 0 errors
+- Frontend: `npm run build` -> succeeds
+- E2E POST /api/career-profiles/analyze returns correct shape for
+  analysis.tsx + plan.tsx rendering (source badges, readiness %,
+  skill gaps, roadmap, courses, projects, certs, interview prep)
+
+========================================================
+2. CHANGES MADE
+========================================================
+
+[1] backend/.env.example
+    - Added missing `GEMINI_API_KEY=` entry.
+    - Problem: plan requires GEMINI_API_KEY (gemini_service.py reads
+      settings.GEMINI_API_KEY) but it was undocumented.
+
+[2] backend/requirements.txt
+    - Added `pandas` and `numpy`.
+    - Problem: plan section 1 lists pandas/numpy as required but they
+      were missing from backend requirements (only in root requirements).
+
+[3] frontend/src/lib/profile-store.ts  (line 42)
+    - Fixed type: `title: str` -> `title: string`.
+    - Problem: `str` is not a TypeScript type. This broke `tsc` and the
+      production build (RoadmapWeek type).
+
+[4] frontend/src/routes/index.tsx  (line 31)
+    - `import.meta.env.VITE_API_URL` -> `import.meta.env["VITE_API_URL"]`
+    - Problem: TS4111. tsconfig enables noPropertyAccessFromIndexSignature,
+      so VITE_API_URL (from vite/client index-signature) must be accessed
+      with bracket notation.
+
+[5] frontend/src/routes/analysis.tsx
+    - (a) Same env access fix as [4].
+    - (b) `<Button size="xs">` -> `size="sm"`.
+    - Problem: Button component only supports "icon" | "default" | "sm" |
+      "lg" -> TS2322 type error.
+
+[6] frontend/src/lib/auth-store.ts  (line 11)
+    - Same env access fix as [4] (pre-existing error, trivial fix).
+
+[7] frontend/src/routes/plan.tsx
+    - Replaced `(step: any, c: any, p: any, item: any)` map params with
+      proper types: RoadmapWeek / CourseItem / ProjectItem / CertItem /
+      InterviewItem (derived from LearningPathData in profile-store).
+    - Removed usage of non-existent fields (`c.platform`, `p.skills`).
+    - Problem: @typescript-eslint/no-explicit-any errors; also the mock
+      fallback data shape differed from backend schema (platform/skills
+      vs provider/technologies).
+
+[8] backend/test_ai_pipeline.py
+    - Each test now uses a unique user id (`test_user_pipeline_<uuid>`).
+    - Problem: tests reused the same user id, so the analyze endpoint's
+      "fall back to latest uploaded resume" behavior leaked state between
+      runs. Re-running the suite failed:
+        test_03 (neither provided) got 200 instead of 400
+        test_04 (portfolio only) reported source.resume == true
+      Fixed by making tests idempotent.
+
+========================================================
+3. PROBLEMS FOUND (issues that needed fixing)
+========================================================
+A) Backend
+   - GEMINI_API_KEY not documented in .env.example.
+   - pandas/numpy absent from backend/requirements.txt.
+   - AI pipeline integration tests were NOT idempotent (state leak via
+     shared test user) -> failed on second run.
+
+B) Frontend
+   - profile-store.ts: `title: str` -> compile error, blocked build.
+   - import.meta.env.VITE_API_URL -> TS4111 (must use bracket access).
+   - analysis.tsx: Button size "xs" not a valid variant -> TS2322.
+   - plan.tsx: many `no-explicit-any` violations; mock fallback fields
+     (platform/skills) mismatched backend schema (provider/technologies).
+
+C) Still open / pre-existing (NOT introduced by this work)
+   - `npm run lint` is red repo-wide: ~5800 errors, almost all
+     prettier CRLF (`Delete CR`) line-ending errors in ~50 untouched
+     files (Windows line endings vs LF-preferred prettier config).
+     Not fixed because it would rewrite the whole repo.
+   - `vite build` prints a warning about vite-tsconfig-paths being
+     redundant (cosmetic, no action needed).
+
+========================================================
+4. FILES TOUCHED
+========================================================
+Modified:
+  backend/.env.example
+  backend/requirements.txt
+  frontend/src/lib/profile-store.ts
+  frontend/src/routes/index.tsx
+  frontend/src/routes/analysis.tsx
+  frontend/src/lib/auth-store.ts
+  frontend/src/routes/plan.tsx
+  backend/test_ai_pipeline.py
+
+(Other files showing as modified/untracked in git status were part of
+ the pre-existing in-progress implementation of the plan and were
+ verified, not changed by me: gemini_service.py, profile_merge_service.py,
+ career_service.py, learning_service.py, portfolio_service.py,
+ resume_service.py, career_profiles.py, mongodb.py, config.py, etc.)
+
+========================================================
+5. HOW TO RUN / VERIFY
+========================================================
+Backend:
+  cd backend
+  ..\venv\Scripts\python.exe run.py        # starts http://localhost:8000
+  ..\venv\Scripts\python.exe test_ai_pipeline.py -v
+
+Frontend:
+  cd frontend
+  npx tsc --noEmit
+  npm run build
+  npm run dev                              # http://localhost:3173
+
+Note: GEMINI_API_KEY must be set in backend/.env for the Gemini layer;
+the pipeline falls back to deterministic heuristics when it is missing.

@@ -17,33 +17,46 @@ router = APIRouter(prefix="/api/resumes", tags=["resumes"])
 
 
 @router.post("/upload", response_model=Dict[str, Any])
-@router.post("", response_model=Dict[str, Any])
-async def upload_resume(
-    file: Optional[UploadFile] = File(None),
-    payload: Optional[ResumeCreate] = Body(None),
+async def upload_resume_file(
+    file: UploadFile = File(...),
     user_id: str = Depends(get_current_user_id)
 ):
     """Upload resume file (PDF/DOCX/TXT), run Hugging Face oksomu/resume-ner, extract structured profile, and store in MongoDB."""
-    file_bytes = None
-    file_name = "resume.pdf"
-    custom_profile = None
-
-    if file:
-        file_bytes = await file.read()
-        file_name = file.filename or "resume.pdf"
-
-    if payload:
-        if payload.fileName:
-            file_name = payload.fileName
-        if payload.profile:
-            custom_profile = payload.profile.model_dump()
-
+    file_bytes = await file.read()
+    file_name = file.filename or "resume.pdf"
     try:
         doc = create_resume_record(
             user_id=user_id,
             file_name=file_name,
-            file_bytes=file_bytes,
-            raw_text=payload.rawText if payload else None,
+            file_bytes=file_bytes
+        )
+        return {
+            "success": True,
+            "message": "Resume processed and stored successfully",
+            "data": doc,
+            "resume": doc
+        }
+    except HTTPException:
+        raise
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing resume: {str(e)}")
+
+
+@router.post("", response_model=Dict[str, Any])
+async def upload_resume_json(
+    payload: ResumeCreate,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Create resume record via JSON body payload containing raw text or custom profile."""
+    file_name = payload.fileName or "resume.pdf"
+    custom_profile = payload.profile.model_dump() if payload.profile else None
+    try:
+        doc = create_resume_record(
+            user_id=user_id,
+            file_name=file_name,
+            raw_text=payload.rawText,
             custom_profile=custom_profile
         )
         return {

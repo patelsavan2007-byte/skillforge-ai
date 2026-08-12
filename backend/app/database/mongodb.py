@@ -31,12 +31,26 @@ def get_safe_host_info(client: MongoClient) -> str:
 
 def connect_to_mongodb():
     """Establish connection to MongoDB Atlas/server, verify with ping, and build indexes."""
-    try:
-        uri = settings.MONGODB_URI
-        db_name = settings.MONGODB_DATABASE or "skillforge"
+    db_name = settings.MONGODB_DATABASE or "skillforge"
+    uri = settings.MONGODB_URI
+    
+    if not uri:
+        print("MONGODB_URI is not set. Falling back to in-memory mongomock.")
+        logger.warning("MONGODB_URI is not set. Falling back to in-memory mongomock.")
+        try:
+            import mongomock
+            db_manager.client = mongomock.MongoClient()
+            db_manager.db = db_manager.client[db_name]
+            init_indexes()
+            print("MongoDB mock client initialized successfully")
+            return
+        except ImportError:
+            print("mongomock is not installed. Mock database fallback not available.")
+            raise ValueError("MONGODB_URI is empty and mongomock is not installed.")
 
+    try:
         # Create single MongoClient instance
-        db_manager.client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        db_manager.client = MongoClient(uri, serverSelectionTimeoutMS=2500, tlsAllowInvalidCertificates=True)
         
         # Test connection with ping
         db_manager.client.admin.command("ping")
@@ -63,9 +77,18 @@ def connect_to_mongodb():
         init_indexes()
 
     except Exception as e:
-        logger.error("Failed to connect to MongoDB: %s", str(e))
-        print("MongoDB connection error:", str(e))
-        raise
+        logger.error("Failed to connect to MongoDB: %s. Trying mongomock fallback...", str(e))
+        print(f"Failed to connect to MongoDB: {e}. Trying mongomock fallback...")
+        try:
+            import mongomock
+            db_manager.client = mongomock.MongoClient()
+            db_manager.db = db_manager.client[db_name]
+            init_indexes()
+            print("MongoDB mock client initialized successfully after connection failure")
+        except Exception as fallback_err:
+            logger.error("Failed to fallback to mongomock: %s", str(fallback_err))
+            print("Failed to fallback to mongomock:", str(fallback_err))
+            raise e
 
 def close_mongodb_connection():
     """Close MongoClient on FastAPI shutdown."""

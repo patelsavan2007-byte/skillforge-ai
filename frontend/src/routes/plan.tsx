@@ -15,15 +15,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  careerAdvice,
-  certifications,
-  courses,
-  interviewTopics,
-  progress,
-  projects,
-  roadmap,
+  careerAdvice as mockAdvice,
+  certifications as mockCerts,
+  courses as mockCourses,
+  projects as mockProjects,
+  roadmap as mockRoadmap,
 } from "@/lib/mock-data";
-import { useProfile } from "@/lib/profile-store";
+import {
+  useProfile,
+  type LearningPathData,
+  type RoadmapWeek,
+} from "@/lib/profile-store";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
@@ -55,7 +57,28 @@ export const Route = createFileRoute("/plan")({
 
 function PlanPage() {
   const profile = useProfile();
-  const role = profile?.role ?? "AI/ML Engineer";
+  const role = profile?.careerProfile?.targetRole || profile?.role || "AI/ML Engineer";
+  const learning = profile?.learningPath;
+
+  type CourseItem = NonNullable<LearningPathData["courses"]>[number];
+  type ProjectItem = NonNullable<LearningPathData["recommendedProjects"]>[number];
+  type CertItem = NonNullable<LearningPathData["certifications"]>[number];
+  type InterviewItem = NonNullable<LearningPathData["interviewPrep"]>[number];
+
+  const roadmapItems: RoadmapWeek[] =
+    learning?.roadmap && learning.roadmap.length > 0 ? learning.roadmap : (mockRoadmap as unknown as RoadmapWeek[]);
+  const courseItems: CourseItem[] =
+    learning?.courses && learning.courses.length > 0 ? learning.courses : (mockCourses as unknown as CourseItem[]);
+  const projectItems: ProjectItem[] =
+    learning?.recommendedProjects && learning.recommendedProjects.length > 0
+      ? learning.recommendedProjects
+      : (mockProjects as unknown as ProjectItem[]);
+  const certItems: CertItem[] =
+    learning?.certifications && learning.certifications.length > 0
+      ? learning.certifications
+      : (mockCerts as unknown as CertItem[]);
+  const interviewItems: InterviewItem[] = learning?.interviewPrep || [];
+  const adviceList = learning?.careerAdvice && learning.careerAdvice.length > 0 ? learning.careerAdvice : [mockAdvice];
 
   return (
     <main className="hero-glow min-h-screen">
@@ -71,25 +94,13 @@ function PlanPage() {
           <div className="mt-3 flex flex-wrap items-center gap-2 text-muted-foreground">
             Target role:
             <Badge className="bg-primary/15 text-primary hover:bg-primary/20">{role}</Badge>
+            {learning?.durationWeeks && (
+              <Badge variant="outline" className="text-muted-foreground">
+                {learning.durationWeeks} Weeks Roadmap
+              </Badge>
+            )}
           </div>
         </header>
-
-        <section className="panel mt-8 grid gap-6 p-6 sm:grid-cols-2 lg:grid-cols-4">
-          {progress.map((p) => (
-            <div key={p.label}>
-              <p className="text-xs tracking-widest text-muted-foreground uppercase">
-                {p.label}
-              </p>
-              <p className="mt-2 font-display text-2xl font-bold">{p.detail}</p>
-              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-gradient-accent"
-                  style={{ width: `${p.value}%` }}
-                />
-              </div>
-            </div>
-          ))}
-        </section>
 
         <Tabs defaultValue="roadmap" className="mt-10">
           <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-surface p-1.5">
@@ -106,60 +117,62 @@ function PlanPage() {
 
           <TabsContent value="roadmap" className="mt-6">
             <ol className="relative space-y-4 border-l border-border pl-6">
-              {roadmap.map((step) => (
-                <li key={step.title} className="relative">
+              {roadmapItems.map((step, idx) => (
+                <li key={idx} className="relative">
                   <span
                     className={`absolute -left-[31px] top-5 grid size-5 place-items-center rounded-full border-2 ${
-                      step.status === "done"
+                      step.completed
                         ? "border-success bg-success text-success-foreground"
-                        : step.status === "current"
+                        : idx === 1
                           ? "border-accent bg-accent text-accent-foreground"
                           : "border-border bg-surface-2"
                     }`}
                   >
-                    {step.status === "done" && <CheckCircle2 className="size-3" />}
-                    {step.status === "current" && <Flame className="size-3" />}
+                    {step.completed && <CheckCircle2 className="size-3" />}
+                    {idx === 1 && <Flame className="size-3" />}
                   </span>
                   <div
                     className={`rounded-2xl border p-5 ${
-                      step.status === "current"
+                      idx === 1
                         ? "glow border-accent/40 bg-surface-2"
                         : "border-border bg-surface/70"
                     }`}
                   >
                     <div className="flex flex-wrap items-center gap-3">
                       <h3 className="flex items-center gap-2 font-display text-lg font-semibold">
-                        {step.status === "current" && (
-                          <Flame className="size-4 text-accent" />
-                        )}
-                        {step.title}
+                        {idx === 1 && <Flame className="size-4 text-accent" />}
+                        Week {step.week}: {step.title}
                       </h3>
-                      <Badge variant="secondary">{step.difficulty}</Badge>
-                      {step.status === "done" ? (
+                      {step.completed ? (
                         <Badge className="bg-success/15 text-success hover:bg-success/20">
                           Completed
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-muted-foreground">
-                          {step.duration}
+                          In Progress
                         </Badge>
                       )}
+                    </div>
 
-                    </div>
-                    <p className="mt-3 text-sm text-muted-foreground">
-                      <span className="text-foreground/80">Why: </span>
-                      {step.why}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {step.skills.map((s) => (
-                        <span
-                          key={s}
-                          className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs text-muted-foreground"
-                        >
-                          {s}
-                        </span>
-                      ))}
-                    </div>
+                    {step.project && (
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        <span className="text-foreground/80 font-medium">Hands-on Project: </span>
+                        {step.project.title} — {step.project.description}
+                      </p>
+                    )}
+
+                    {step.skills && step.skills.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {step.skills.map((s: string) => (
+                          <span
+                            key={s}
+                            className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs text-muted-foreground"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </li>
               ))}
@@ -168,28 +181,31 @@ function PlanPage() {
 
           <TabsContent value="courses" className="mt-6">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {courses.map((c) => (
-                <Card key={c.title}>
+              {courseItems.map((c, idx) => (
+                <Card key={idx}>
                   <h3 className="font-display text-base font-semibold">{c.title}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">{c.platform}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{c.provider || "Online Provider"}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge className="bg-primary/15 text-primary hover:bg-primary/20">
-                      {c.skill}
-                    </Badge>
-                    <Badge variant="secondary">{c.difficulty}</Badge>
-                    <Badge variant="outline" className="text-muted-foreground">
-                      {c.duration}
-                    </Badge>
+                    {c.skillAddressed && (
+                      <Badge className="bg-primary/15 text-primary hover:bg-primary/20">
+                        {c.skillAddressed}
+                      </Badge>
+                    )}
+                    {c.difficulty && <Badge variant="secondary">{c.difficulty}</Badge>}
+                    {c.duration && (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        {c.duration}
+                      </Badge>
+                    )}
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    <span className="text-foreground/80">Why recommended: </span>
-                    {c.why}
-                  </p>
                   <Button
                     variant="secondary"
                     size="sm"
                     className="mt-4 w-full"
-                    onClick={() => toast("Course link will open once the backend is connected.")}
+                    onClick={() => {
+                      if (c.url) window.open(c.url, "_blank");
+                      else toast("Opening course portal...");
+                    }}
                   >
                     View Course
                   </Button>
@@ -199,36 +215,32 @@ function PlanPage() {
           </TabsContent>
 
           <TabsContent value="projects" className="mt-6">
-            <div className="grid gap-4 md:grid-cols-3">
-              {projects.map((p) => (
-                <Card key={p.title}>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {projectItems.map((p, idx) => (
+                <Card key={idx}>
                   <h3 className="font-display text-base font-semibold">{p.title}</h3>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge variant="secondary">{p.difficulty}</Badge>
-                    <Badge variant="outline" className="text-muted-foreground">
-                      {p.time}
-                    </Badge>
-                  </div>
-                  <p className="mt-3 text-xs tracking-widest text-muted-foreground uppercase">
-                    Skills gained
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {p.skills.map((s) => (
-                      <span
-                        key={s}
-                        className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs text-muted-foreground"
-                      >
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    <span className="text-foreground/80">Why: </span>
-                    {p.why}
-                  </p>
-                  <p className="mt-3 inline-flex rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent">
-                    {p.impact}
-                  </p>
+                  {p.difficulty && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Badge variant="secondary">{p.difficulty}</Badge>
+                    </div>
+                  )}
+                  {p.description && (
+                    <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                      {p.description}
+                    </p>
+                  )}
+                  {p.technologies && p.technologies.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {p.technologies.map((s: string, si: number) => (
+                        <span
+                          key={si}
+                          className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs text-muted-foreground"
+                        >
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </Card>
               ))}
             </div>
@@ -236,85 +248,44 @@ function PlanPage() {
 
           <TabsContent value="certs" className="mt-6">
             <div className="grid gap-4 md:grid-cols-3">
-              {certifications.map((c) => (
-                <Card key={c.name}>
+              {certItems.map((c, idx) => (
+                <Card key={idx}>
                   <Award className="size-6 text-accent" />
                   <h3 className="mt-3 font-display text-base font-semibold">{c.name}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">{c.provider}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge className="bg-primary/15 text-primary hover:bg-primary/20">
-                      {c.skill}
-                    </Badge>
-                    <Badge variant="secondary">{c.difficulty}</Badge>
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    <span className="text-foreground/80">Why recommended: </span>
-                    {c.why}
-                  </p>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="mt-4 w-full"
-                    onClick={() => toast("Certification details coming with the live backend.")}
-                  >
-                    View
-                  </Button>
+                  <p className="mt-1 text-xs text-muted-foreground">{c.provider || "Industry Certification"}</p>
+                  {c.priority && (
+                    <div className="mt-3">
+                      <Badge className="bg-primary/15 text-primary">Priority: {c.priority}</Badge>
+                    </div>
+                  )}
                 </Card>
               ))}
             </div>
           </TabsContent>
 
           <TabsContent value="interview" className="mt-6">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <p className="text-xs tracking-widest text-muted-foreground uppercase">
-                  High priority topics
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {interviewTopics.high.map((t) => (
-                    <Badge key={t} className="bg-danger/15 text-danger hover:bg-danger/20">
-                      {t}
-                    </Badge>
-                  ))}
-                </div>
-                <p className="mt-5 text-xs tracking-widest text-muted-foreground uppercase">
-                  Also review
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {interviewTopics.medium.map((t) => (
-                    <Badge key={t} variant="secondary">
-                      {t}
-                    </Badge>
-                  ))}
-                </div>
-              </Card>
-              <Card>
-                <p className="font-display text-2xl font-bold">
-                  50 personalized interview questions
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Generated from your detected skill gaps.
-                </p>
-                <div className="mt-4 space-y-2">
-                  {interviewTopics.categories.map((c) => (
-                    <div
-                      key={c.name}
-                      className="flex items-center justify-between rounded-lg border border-border bg-surface-2/60 px-3 py-2 text-sm"
-                    >
-                      <span>{c.name}</span>
-                      <span className="text-muted-foreground tabular-nums">
-                        {c.count} questions
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <Button
-                  className="glow mt-5 w-full bg-gradient-accent font-semibold text-primary-foreground hover:opacity-90"
-                  onClick={() => toast("Interview prep unlocks with your AI backend.")}
-                >
-                  Start Interview Prep
-                </Button>
-              </Card>
+            <div className="grid gap-4 md:grid-cols-2">
+              {interviewItems.length > 0 ? (
+                interviewItems.map((item, idx) => (
+                  <Card key={idx}>
+                    <Badge className="bg-accent/15 text-accent">{item.topic || "Interview Prep"}</Badge>
+                    <p className="mt-3 font-semibold text-base text-foreground">{item.question}</p>
+                    {item.keyConcept && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        <strong className="text-foreground/80">Key Concept: </strong>
+                        {item.keyConcept}
+                      </p>
+                    )}
+                  </Card>
+                ))
+              ) : (
+                <Card>
+                  <p className="font-display text-xl font-bold">Recommended Interview Focus</p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Practice technical system design questions, data structure optimization, and role-specific architecture for {role}.
+                  </p>
+                </Card>
+              )}
             </div>
           </TabsContent>
         </Tabs>
@@ -322,9 +293,16 @@ function PlanPage() {
         <section className="panel glow mt-10 p-7">
           <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-accent uppercase">
             <Lightbulb className="size-4" />
-            Your next best step
+            AI Career Mentor Advice
           </p>
-          <p className="mt-3 text-lg leading-relaxed text-foreground/90">{careerAdvice}</p>
+          <ul className="mt-3 space-y-2">
+            {adviceList.map((adv: string, idx: number) => (
+              <li key={idx} className="text-base leading-relaxed text-foreground/90 flex items-start gap-2">
+                <span className="text-accent font-bold">•</span>
+                {adv}
+              </li>
+            ))}
+          </ul>
         </section>
       </div>
     </main>

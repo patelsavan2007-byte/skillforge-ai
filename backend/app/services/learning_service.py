@@ -1,100 +1,82 @@
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from app.database.mongodb import get_learning_paths_collection
-from app.services.career_service import get_user_career_profiles
+from app.services.gemini_service import generate_recommendations_with_gemini
 from app.utils.object_id import validate_object_id, serialize_doc, serialize_docs
 
-def generate_learning_roadmap(target_role: str = "AI Engineer", duration_weeks: int = 8) -> List[Dict[str, Any]]:
-    """Generate week-by-week Gemini learning roadmap."""
-    weeks = [
+logger = logging.getLogger("skillforge.learning_service")
+
+def generate_personalized_recommendations(
+    unified_profile: Dict[str, Any],
+    target_role: str,
+    skill_gaps: List[Dict[str, Any]],
+    duration_weeks: int = 8
+) -> Dict[str, Any]:
+    """
+    Generate personalized roadmap, courses, projects, certifications, interview questions, and advice
+    directly linked to identified candidate skill gaps.
+    Combines Gemini recommendations + fallback heuristics.
+    """
+    # 1. Try Gemini Recommendation Engine
+    gemini_recs = generate_recommendations_with_gemini(unified_profile, target_role, skill_gaps)
+    if gemini_recs and gemini_recs.get("roadmap"):
+        return gemini_recs
+
+    # HEURISTIC FALLBACK TAILORED TO SKILL GAPS
+    gap_names = [g.get("skill", "") for g in skill_gaps if g.get("skill")]
+    primary_gap = gap_names[0] if gap_names else "Machine Learning"
+    secondary_gap = gap_names[1] if len(gap_names) > 1 else "Deep Learning"
+
+    roadmap = [
         {
             "week": 1,
-            "title": "Python & Advanced Data Structures",
-            "skills": ["OOP", "Generators", "Asyncio", "Testing"],
+            "title": f"Fundamentals of {primary_gap}",
+            "skills": [primary_gap, "Core Principles"],
             "courses": [
                 {
-                    "title": "Complete Python Developer",
-                    "provider": "Coursera / Udemy",
+                    "title": f"Mastering {primary_gap}",
+                    "provider": "Coursera",
                     "url": "https://coursera.org",
                     "duration": "10 hours",
                     "difficulty": "Intermediate"
                 }
             ],
             "project": {
-                "title": "High-Performance Data Pipeline",
-                "description": "Build an asynchronous data extraction pipeline.",
-                "skills": ["Python", "Asyncio"]
+                "title": f"{primary_gap} Hands-on Implementation",
+                "description": f"Build a practical project focusing on {primary_gap}.",
+                "skills": [primary_gap]
             },
             "completed": True
         },
         {
             "week": 2,
-            "title": "Machine Learning & Model Evaluation",
-            "skills": ["Regression", "Classification", "Cross Validation"],
+            "title": f"Advanced {secondary_gap} & Architecture",
+            "skills": [secondary_gap, "System Design"],
             "courses": [
                 {
-                    "title": "Machine Learning Specialization",
-                    "provider": "Coursera · DeepLearning.AI",
+                    "title": f"{secondary_gap} Specialization",
+                    "provider": "DeepLearning.AI",
                     "url": "https://coursera.org",
                     "duration": "15 hours",
-                    "difficulty": "Intermediate"
+                    "difficulty": "Advanced"
                 }
             ],
             "project": {
-                "title": "Customer Churn Predictor",
-                "description": "Train and evaluate a gradient boosted decision tree model.",
-                "skills": ["Python", "Scikit-learn", "Pandas"]
+                "title": f"{secondary_gap} Production Pipeline",
+                "description": f"Develop an end-to-end pipeline implementing {secondary_gap}.",
+                "skills": [secondary_gap]
             },
             "completed": False
         },
         {
             "week": 3,
-            "title": "Deep Learning & Neural Networks",
-            "skills": ["CNN", "PyTorch", "Transfer Learning"],
+            "title": "API Integration & Docker Deployment",
+            "skills": ["FastAPI", "Docker", "REST API"],
             "courses": [
                 {
-                    "title": "Deep Learning Specialization",
-                    "provider": "Coursera · DeepLearning.AI",
-                    "url": "https://coursera.org",
-                    "duration": "20 hours",
-                    "difficulty": "Advanced"
-                }
-            ],
-            "project": {
-                "title": "Image Classifier with PyTorch",
-                "description": "Fine-tune a ResNet model for custom image classification.",
-                "skills": ["PyTorch", "Computer Vision"]
-            },
-            "completed": False
-        },
-        {
-            "week": 4,
-            "title": "SQL Data Warehousing",
-            "skills": ["Window Functions", "Joins", "Indexing"],
-            "courses": [
-                {
-                    "title": "SQL for Data Science",
-                    "provider": "Coursera · UC Davis",
-                    "url": "https://coursera.org",
-                    "duration": "8 hours",
-                    "difficulty": "Intermediate"
-                }
-            ],
-            "project": {
-                "title": "Analytics Data Warehouse",
-                "description": "Design relational tables and optimize analytical SQL queries.",
-                "skills": ["SQL", "Data Modeling"]
-            },
-            "completed": False
-        },
-        {
-            "week": 5,
-            "title": "FastAPI & REST Service Architecture",
-            "skills": ["FastAPI", "Pydantic", "Async Endpoints"],
-            "courses": [
-                {
-                    "title": "FastAPI Microservices",
+                    "title": "FastAPI & Docker Microservices",
                     "provider": "Udemy",
                     "url": "https://udemy.com",
                     "duration": "12 hours",
@@ -102,95 +84,131 @@ def generate_learning_roadmap(target_role: str = "AI Engineer", duration_weeks: 
                 }
             ],
             "project": {
-                "title": "ML Model Inference Server",
-                "description": "Serve PyTorch model predictions via scalable REST APIs.",
-                "skills": ["FastAPI", "Python", "REST"]
-            },
-            "completed": False
-        },
-        {
-            "week": 6,
-            "title": "Containerization & Docker",
-            "skills": ["Docker", "Docker Compose", "Multi-stage builds"],
-            "courses": [
-                {
-                    "title": "Docker & Kubernetes Mastery",
-                    "provider": "Udemy",
-                    "url": "https://udemy.com",
-                    "duration": "14 hours",
-                    "difficulty": "Intermediate"
-                }
-            ],
-            "project": {
-                "title": "Dockerized ML API",
-                "description": "Package model server into production Docker image.",
+                "title": f"Dockerized {target_role} API",
+                "description": "Serve predictions via REST endpoints packaged in Docker.",
                 "skills": ["Docker", "FastAPI"]
             },
             "completed": False
         },
         {
-            "week": 7,
-            "title": "MLOps & CI/CD Pipelines",
-            "skills": ["GitHub Actions", "Model Registry", "Monitoring"],
+            "week": 4,
+            "title": "Industry Capstone & Portfolio Publishing",
+            "skills": ["Git", "CI/CD", "Documentation"],
             "courses": [
                 {
-                    "title": "MLOps Specialization",
-                    "provider": "Coursera · DeepLearning.AI",
-                    "url": "https://coursera.org",
-                    "duration": "16 hours",
-                    "difficulty": "Advanced"
-                }
-            ],
-            "project": {
-                "title": "Automated Model Deployment Pipeline",
-                "description": "Setup CI/CD pipeline to test and deploy ML API.",
-                "skills": ["MLOps", "CI/CD", "Docker"]
-            },
-            "completed": False
-        },
-        {
-            "week": 8,
-            "title": "Capstone Industry Project",
-            "skills": ["System Design", "Documentation", "Deployment"],
-            "courses": [
-                {
-                    "title": "Machine Learning Engineering Capstone",
+                    "title": f"{target_role} Production Best Practices",
                     "provider": "SkillForge AI",
                     "url": "https://skillforge.ai",
-                    "duration": "25 hours",
+                    "duration": "20 hours",
                     "difficulty": "Advanced"
                 }
             ],
             "project": {
-                "title": "End-to-End AI Application",
-                "description": "Deploy a complete web AI system with full production capabilities.",
-                "skills": ["Python", "React", "FastAPI", "MongoDB", "Docker"]
+                "title": f"Production {target_role} System",
+                "description": "Deploy complete system with documentation, monitoring, and live demo link.",
+                "skills": [primary_gap, secondary_gap, "Docker", "FastAPI"]
             },
             "completed": False
         }
     ]
-    return weeks[:duration_weeks]
+
+    courses = [
+        {
+            "title": f"{primary_gap} Masterclass",
+            "provider": "Coursera",
+            "url": "https://coursera.org",
+            "duration": "12 hours",
+            "difficulty": "Intermediate",
+            "skillAddressed": primary_gap
+        },
+        {
+            "title": f"{secondary_gap} in Production",
+            "provider": "Udemy",
+            "url": "https://udemy.com",
+            "duration": "15 hours",
+            "difficulty": "Advanced",
+            "skillAddressed": secondary_gap
+        }
+    ]
+
+    recommended_projects = [
+        {
+            "title": f"Real-world {primary_gap} System",
+            "description": f"Implement a complete system demonstrating mastery of {primary_gap}.",
+            "technologies": [primary_gap, "Python", "FastAPI"],
+            "difficulty": "Advanced"
+        },
+        {
+            "title": f"End-to-End {target_role} Platform",
+            "description": f"Build and deploy a full-stack platform for {target_role} portfolio.",
+            "technologies": [primary_gap, secondary_gap, "Docker", "MongoDB"],
+            "difficulty": "Advanced"
+        }
+    ]
+
+    certifications = [
+        {"name": f"Professional {target_role} Certificate", "provider": "Google / AWS", "priority": "High"},
+        {"name": f"Advanced {primary_gap} Developer", "provider": "DeepLearning.AI", "priority": "High"}
+    ]
+
+    interview_prep = [
+        {
+            "topic": primary_gap,
+            "question": f"Explain key architectural trade-offs in {primary_gap} and how you optimize performance.",
+            "keyConcept": f"Core mechanics and production considerations of {primary_gap}."
+        },
+        {
+            "topic": "System Design",
+            "question": f"How would you design a scalable system for {target_role}?",
+            "keyConcept": "API design, load balancing, model caching, and database indexing."
+        }
+    ]
+
+    career_advice = [
+        f"Highlight hands-on projects featuring {primary_gap} prominently on your GitHub repository.",
+        f"Tailor your resume headline specifically for '{target_role}' positions.",
+        "Add architecture diagrams and live demo links to all portfolio projects."
+    ]
+
+    return {
+        "durationWeeks": duration_weeks,
+        "roadmap": roadmap[:duration_weeks],
+        "courses": courses,
+        "recommendedProjects": recommended_projects,
+        "certifications": certifications,
+        "interviewPrep": interview_prep,
+        "careerAdvice": career_advice
+    }
 
 def create_learning_path_record(
     user_id: str,
     target_role: str = "AI Engineer",
     duration_weeks: int = 8,
+    unified_profile: Optional[Dict[str, Any]] = None,
+    skill_gaps: Optional[List[Dict[str, Any]]] = None,
     custom_roadmap: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
-    """Generate or persist Gemini learning roadmap into MongoDB learning_paths collection."""
+    """Generate and persist personalized learning roadmap into MongoDB learning_paths collection."""
     paths_col = get_learning_paths_collection()
     
     if custom_roadmap:
-        roadmap = custom_roadmap
+        recs = {"roadmap": custom_roadmap, "durationWeeks": len(custom_roadmap)}
     else:
-        roadmap = generate_learning_roadmap(target_role, duration_weeks)
+        profile_obj = unified_profile or {}
+        gaps_obj = skill_gaps or []
+        recs = generate_personalized_recommendations(profile_obj, target_role, gaps_obj, duration_weeks)
 
     now = datetime.utcnow()
     doc = {
         "userId": user_id,
         "targetRole": target_role,
-        "durationWeeks": len(roadmap) if len(roadmap) > 0 else duration_weeks,
-        "roadmap": roadmap,
+        "durationWeeks": recs.get("durationWeeks", duration_weeks),
+        "roadmap": recs.get("roadmap", []),
+        "courses": recs.get("courses", []),
+        "recommendedProjects": recs.get("recommendedProjects", []),
+        "certifications": recs.get("certifications", []),
+        "interviewPrep": recs.get("interviewPrep", []),
+        "careerAdvice": recs.get("careerAdvice", []),
         "createdAt": now,
         "updatedAt": now,
     }

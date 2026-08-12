@@ -41,6 +41,9 @@ beautifulsoup4
 python-jose[cryptography]
 passlib[bcrypt]
 email-validator
+authlib
+itsdangerous
 
 # Optional useful utilities
 tqdm
+mongomock
