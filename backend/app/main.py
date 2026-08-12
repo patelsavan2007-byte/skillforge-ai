@@ -60,6 +60,20 @@ app.include_router(career_profiles_router)
 app.include_router(learning_paths_router)
 app.include_router(progress_router)
 
+@app.get("/")
+def root():
+    return {
+        "status": "ok",
+        "message": "SkillForge AI backend is running"
+    }
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "message": "Backend is running"
+    }
+
 @app.get("/api/health", tags=["health"])
 async def health_check():
     return {
@@ -67,3 +81,4 @@ async def health_check():
         "service": "skillforge-ai-api",
         "database": "mongodb_atlas",
     }
+
