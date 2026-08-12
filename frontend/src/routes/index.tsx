@@ -10,6 +10,7 @@ import {
   Target,
   Trash2,
   UploadCloud,
+  AlertCircle,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -23,9 +24,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TARGET_ROLES } from "@/lib/mock-data";
-import { formatBytes, saveProfile } from "@/lib/profile-store";
+import { formatBytes, saveProfile, ExtractedResumeProfile } from "@/lib/profile-store";
 
 import { RequireAuth } from "@/components/auth/require-auth";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -52,43 +55,107 @@ export const Route = createFileRoute("/")({
 });
 
 const LOADING_STEPS = [
-  "Parsing your resume…",
-  "Scanning your portfolio repositories…",
-  "Extracting skills & proficiency…",
-  "Comparing against role requirements…",
-  "Building your personalized plan…",
+  "Parsing your resume file (PDF/DOCX/TXT)…",
+  "Running Hugging Face oksomu/resume-ner model…",
+  "Extracting entities, academic scores & skills…",
+  "Structuring experience, projects & education…",
+  "Building your personalized profile & career roadmap…",
 ];
 
 function Index() {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<{ name: string; size: number } | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [fileMeta, setFileMeta] = useState<{ name: string; size: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [portfolio, setPortfolio] = useState("https://github.com/student");
   const [linkedin, setLinkedin] = useState("");
   const [role, setRole] = useState<string>("AI/ML Engineer");
   const [loadingStep, setLoadingStep] = useState(-1);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const analyzing = loadingStep >= 0;
 
   function pick(f: File | undefined | null) {
     if (!f) return;
-    setFile({ name: f.name, size: f.size });
+    setErrorMsg(null);
+    setFile(f);
+    setFileMeta({ name: f.name, size: f.size });
   }
 
-  function analyze() {
-    saveProfile({
-      resumeName: file?.name ?? "Resume.pdf",
-      resumeSize: file?.size ?? 184320,
-      portfolio,
-      linkedin,
-      role,
-    });
+  async function analyze() {
+    setErrorMsg(null);
     setLoadingStep(0);
-    LOADING_STEPS.forEach((_, i) => {
-      setTimeout(() => setLoadingStep(i), i * 650);
-    });
-    setTimeout(() => navigate({ to: "/analysis" }), LOADING_STEPS.length * 650);
+
+    let extractedData: ExtractedResumeProfile | undefined = undefined;
+    let resumeId: string | undefined = undefined;
+
+    // Run UI loading animation steps
+    const stepInterval = setInterval(() => {
+      setLoadingStep((prev) => (prev < LOADING_STEPS.length - 1 ? prev + 1 : prev));
+    }, 600);
+
+    try {
+      if (file) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch(`${API_BASE_URL}/api/resumes/upload`, {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to process resume file on backend.");
+        }
+
+        const data = await res.json();
+        if (data.success && data.resume) {
+          resumeId = data.resume.id || data.resume._id;
+          extractedData = data.resume.profile;
+        }
+      } else {
+        // If no new file uploaded, try fetching latest active resume from backend
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/resumes`, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.resume) {
+              resumeId = data.resume.id || data.resume._id;
+              extractedData = data.resume.profile;
+            }
+          }
+        } catch {
+          // ignore fallback error
+        }
+      }
+
+      clearInterval(stepInterval);
+      setLoadingStep(LOADING_STEPS.length - 1);
+
+      // Persist profile state
+      saveProfile({
+        resumeId,
+        resumeName: fileMeta?.name ?? "Resume.pdf",
+        resumeSize: fileMeta?.size ?? 184320,
+        portfolio,
+        linkedin,
+        role,
+        extractedProfile: extractedData,
+      });
+
+      setTimeout(() => navigate({ to: "/analysis" }), 400);
+    } catch (err: any) {
+      clearInterval(stepInterval);
+      setLoadingStep(-1);
+      setErrorMsg(err.message || "An error occurred while uploading your resume.");
+    }
   }
 
   return (
@@ -106,32 +173,45 @@ function Index() {
             Your AI-powered career mentor
           </p>
           <p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground">
-            Upload your resume, share your portfolio, and discover exactly what you should
+            Upload your resume (PDF, DOCX, TXT), share your portfolio, and discover exactly what you should
             learn next to become job-ready.
           </p>
         </header>
 
         <section className="panel mt-12 p-6 sm:p-9">
+          {errorMsg && (
+            <div className="mb-6 flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-destructive">
+              <AlertCircle className="mt-0.5 size-5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-semibold">Resume Processing Error</p>
+                <p className="mt-1 opacity-90">{errorMsg}</p>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-8 md:grid-cols-2">
             <div className="md:col-span-2">
-              <SectionLabel icon={<FileText className="size-4" />} text="Resume" />
-              {file ? (
+              <SectionLabel icon={<FileText className="size-4" />} text="Resume Upload (PDF, DOCX, TXT)" />
+              {fileMeta ? (
                 <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-primary/40 bg-surface-2 p-4">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
                       <FileText className="size-5" />
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{file.name}</p>
+                      <p className="truncate text-sm font-medium">{fileMeta.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatBytes(file.size)} · PDF
+                        {formatBytes(fileMeta.size)} · {fileMeta.name.split(".").pop()?.toUpperCase()}
                       </p>
                     </div>
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setFile(null)}
+                    onClick={() => {
+                      setFile(null);
+                      setFileMeta(null);
+                    }}
                     className="text-muted-foreground hover:text-destructive"
                   >
                     <Trash2 className="size-4" />
@@ -158,9 +238,9 @@ function Index() {
                   }`}
                 >
                   <UploadCloud className="mx-auto size-8 text-primary" />
-                  <p className="mt-3 text-sm font-medium">Drag & drop your PDF here</p>
+                  <p className="mt-3 text-sm font-medium">Drag & drop your resume file here</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    PDF only · max 5 MB
+                    PDF, DOCX, or TXT · max 10 MB
                   </p>
                   <Button type="button" variant="secondary" size="sm" className="mt-4">
                     Upload Resume
@@ -168,7 +248,7 @@ function Index() {
                   <input
                     ref={inputRef}
                     type="file"
-                    accept="application/pdf"
+                    accept=".pdf,.docx,.txt"
                     className="hidden"
                     onChange={(e) => pick(e.target.files?.[0])}
                   />
@@ -218,8 +298,7 @@ function Index() {
                 </SelectContent>
               </Select>
               <p className="mt-4 rounded-lg border border-border bg-surface-2/60 p-3 text-xs leading-relaxed text-muted-foreground">
-                We compare your extracted skills against the market requirements for{" "}
-                <span className="text-primary">{role}</span> to detect your gaps.
+                We analyze your resume with Hugging Face <span className="font-semibold text-primary">oksomu/resume-ner</span> to detect your skills, education, and experience.
               </p>
             </div>
           </div>
@@ -233,12 +312,12 @@ function Index() {
             {analyzing ? (
               <>
                 <Loader2 className="size-5 animate-spin" />
-                Analyzing…
+                Analyzing with Hugging Face NER…
               </>
             ) : (
               <>
                 <BrainCircuit className="size-5" />
-                Analyze My Career
+                Analyze My Resume & Career
               </>
             )}
           </Button>
@@ -269,16 +348,16 @@ function Index() {
         <section className="mt-14 grid gap-4 sm:grid-cols-3">
           {[
             {
-              t: "Profile Analysis",
-              d: "Resume + portfolio parsed into a real skill profile with proficiency scores.",
+              t: "Hugging Face NER Extraction",
+              d: "Pretrained oksomu/resume-ner extracts skills, degree, field, company & experience.",
             },
             {
-              t: "Skill Gap Detection",
-              d: "Your level compared against what the role actually requires today.",
+              t: "Academic & Project Parser",
+              d: "Deterministic SGPA/CGPA parsing + project section detection.",
             },
             {
-              t: "Personalized Plan",
-              d: "Roadmap, courses, projects, certifications and interview prep.",
+              t: "Editable Profile & Roadmap",
+              d: "Review and edit extracted profile before personalized career recommendation.",
             },
           ].map((f) => (
             <div key={f.t} className="rounded-xl border border-border bg-surface/70 p-5">

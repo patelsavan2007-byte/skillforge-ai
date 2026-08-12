@@ -55,6 +55,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(resumes_router)
+app.include_router(resumes_router, prefix="/api/resume", tags=["resume-alias"])
 app.include_router(portfolios_router)
 app.include_router(career_profiles_router)
 app.include_router(learning_paths_router)

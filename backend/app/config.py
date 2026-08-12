@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     MONGODB_URI: str = ""
     MONGODB_DATABASE: str = "skillforge"
     ENVIRONMENT: str = "development"
+    RESUME_NER_MODEL: str = "oksomu/resume-ner"
+    RESUME_NER_MIN_CONFIDENCE: float = 0.60
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,
