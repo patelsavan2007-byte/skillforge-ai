@@ -1,9 +1,10 @@
 import secrets
 import urllib.parse
+from datetime import datetime
 import httpx
-from sqlalchemy.orm import Session
 from app.config import settings
-from app.models.user import User
+from app.database.mongodb import get_users_collection
+from app.utils.object_id import serialize_doc
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -49,36 +50,51 @@ async def fetch_google_user_profile(access_token: str) -> dict:
             raise Exception(f"Failed to fetch Google profile: {response.text}")
         return response.json()
 
-def get_or_create_user(db: Session, google_profile: dict) -> User:
-    google_id = str(google_profile.get("id") or google_profile.get("sub"))
+def get_or_create_user(google_profile: dict) -> dict:
+    """Find or create user in MongoDB users collection."""
+    users_col = get_users_collection()
+    google_id = str(google_profile.get("id") or google_profile.get("sub") or "")
     email = google_profile.get("email")
-    name = google_profile.get("name") or email.split("@")[0]
+    name = google_profile.get("name") or (email.split("@")[0] if email else "User")
     picture = google_profile.get("picture") or ""
 
-    if not google_id or not email:
-        raise ValueError("Google user profile missing google_id or email")
+    if not email:
+        raise ValueError("Google user profile missing email")
 
-    user = db.query(User).filter(User.google_id == google_id).first()
-    if not user:
-        # Check if user exists with same email
-        user = db.query(User).filter(User.email == email).first()
-        if user:
-            user.google_id = google_id
-            user.name = name or user.name
-            user.profile_picture = picture or user.profile_picture
-        else:
-            user = User(
-                google_id=google_id,
-                email=email,
-                name=name,
-                profile_picture=picture,
-            )
-            db.add(user)
+    query = {"$or": [{"email": email}]}
+    if google_id:
+        query["$or"].append({"google_id": google_id})
+
+    user = users_col.find_one(query)
+    now = datetime.utcnow()
+
+    if user:
+        user_id = str(user["_id"])
+        users_col.update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {
+                    "name": name,
+                    "google_id": google_id or user.get("google_id", ""),
+                    "profile_picture": picture or user.get("profile_picture", ""),
+                    "updatedAt": now,
+                }
+            },
+        )
+        user["id"] = user_id
+        user["name"] = name
+        user["profile_picture"] = picture or user.get("profile_picture", "")
+        return serialize_doc(user)
     else:
-        # Update details if changed
-        user.name = name or user.name
-        user.profile_picture = picture or user.profile_picture
-
-    db.commit()
-    db.refresh(user)
-    return user
+        new_doc = {
+            "name": name,
+            "email": email,
+            "google_id": google_id,
+            "profile_picture": picture,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        res = users_col.insert_one(new_doc)
+        new_doc["id"] = str(res.inserted_id)
+        new_doc["_id"] = str(res.inserted_id)
+        return serialize_doc(new_doc)

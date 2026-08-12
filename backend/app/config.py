@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/auth/google/callback"
     FRONTEND_URL: str = "http://localhost:5173"
     SESSION_SECRET: str = "skillforge_ai_super_secret_session_key_2026_x89q"
+    MONGODB_URI: str = ""
+    MONGODB_DATABASE: str = "skillforge"
     ENVIRONMENT: str = "development"
 
     model_config = SettingsConfigDict(
