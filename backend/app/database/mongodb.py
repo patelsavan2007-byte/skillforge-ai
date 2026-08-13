@@ -49,8 +49,8 @@ def connect_to_mongodb():
             raise ValueError("MONGODB_URI is empty and mongomock is not installed.")
 
     try:
-        # Create single MongoClient instance
-        db_manager.client = MongoClient(uri, serverSelectionTimeoutMS=2500, tlsAllowInvalidCertificates=True)
+        # Create single MongoClient instance (secure TLS — no insecure overrides)
+        db_manager.client = MongoClient(uri, serverSelectionTimeoutMS=10000)
         
         # Test connection with ping
         db_manager.client.admin.command("ping")
@@ -77,14 +77,34 @@ def connect_to_mongodb():
         init_indexes()
 
     except Exception as e:
-        logger.error("Failed to connect to MongoDB: %s. Trying mongomock fallback...", str(e))
-        print(f"Failed to connect to MongoDB: {e}. Trying mongomock fallback...")
+        err_str = str(e)
+        err_type = type(e).__name__
+
+        # Categorize the error clearly without exposing credentials
+        if "SSL" in err_str or "TLS" in err_str or "tlsv1" in err_str.lower():
+            print("MongoDB connection FAILED — TLS/SSL handshake error.")
+            print(">>> Most likely cause: your IP is not in MongoDB Atlas Network Access allowlist.")
+            print(">>> Fix: Go to https://cloud.mongodb.com -> Network Access -> Add IP Address")
+            logger.error("MongoDB TLS handshake failed — likely Atlas IP allowlist issue: %s", err_type)
+        elif "timed out" in err_str.lower() or "ServerSelectionTimeoutError" in err_type:
+            print("MongoDB connection FAILED — connection timed out.")
+            print(">>> Check: network/firewall, Atlas cluster status, and IP allowlist.")
+            logger.error("MongoDB connection timed out: %s", err_type)
+        elif "authentication" in err_str.lower() or "auth" in err_str.lower():
+            print("MongoDB connection FAILED — authentication error.")
+            print(">>> Check: username and password in MONGODB_URI (.env file).")
+            logger.error("MongoDB authentication failed: %s", err_type)
+        else:
+            print(f"MongoDB connection FAILED — {err_type}")
+            logger.error("MongoDB connection failed (%s): %s", err_type, err_str[:200])
+
         try:
             import mongomock
             db_manager.client = mongomock.MongoClient()
             db_manager.db = db_manager.client[db_name]
             init_indexes()
-            print("MongoDB mock client initialized successfully after connection failure")
+            print("MongoDB mock client initialized (in-memory fallback — data will not persist)")
+            logger.warning("Using mongomock in-memory fallback — Atlas connection unavailable")
         except Exception as fallback_err:
             logger.error("Failed to fallback to mongomock: %s", str(fallback_err))
             print("Failed to fallback to mongomock:", str(fallback_err))
