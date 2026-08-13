@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from app.routes.auth import get_current_user_id
 from app.schemas.career_profile import CareerProfileCreate
-from app.services.resume_service import create_resume_record, get_latest_user_resume, get_resume_by_id
+from app.services.resume_service import create_resume_record
 from app.services.portfolio_service import analyze_portfolio_url, create_portfolio_record
 from app.services.profile_merge_service import merge_student_profiles
 from app.services.career_service import (
@@ -51,9 +51,8 @@ async def analyze_career_pipeline(
             )
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to process resume file: {str(e)}")
-    else:
-        # Fall back to latest uploaded resume for this user if available
-        resume_doc = get_latest_user_resume(user_id)
+    # Deliberately do not load a historical resume here.  This endpoint is an
+    # "analyze current inputs" action: only an uploaded file participates.
 
     # Case 2: Handle portfolio URL
     p_url = (portfolio_url or "").strip()

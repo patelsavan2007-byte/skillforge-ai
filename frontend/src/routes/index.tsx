@@ -4,7 +4,6 @@ import {
   BrainCircuit,
   FileText,
   Github,
-  Linkedin,
   Loader2,
   Sparkles,
   Target,
@@ -23,8 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TARGET_ROLES } from "@/lib/mock-data";
-import { formatBytes, saveProfile } from "@/lib/profile-store";
+import { ROLE_DESCRIPTIONS, TARGET_ROLES, type TargetRole } from "@/lib/mock-data";
+import { clearProfile, formatBytes, saveProfile } from "@/lib/profile-store";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
@@ -68,13 +67,17 @@ function Index() {
   const [file, setFile] = useState<File | null>(null);
   const [fileMeta, setFileMeta] = useState<{ name: string; size: number } | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [portfolio, setPortfolio] = useState("https://github.com/student");
-  const [linkedin, setLinkedin] = useState("");
+  const [portfolio, setPortfolio] = useState("");
   const [role, setRole] = useState<string>("AI/ML Engineer");
   const [loadingStep, setLoadingStep] = useState(-1);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const analyzing = loadingStep >= 0;
+  const trimmedPortfolio = portfolio.trim();
+  const hasPortfolio = Boolean(trimmedPortfolio);
+  const portfolioValid = !hasPortfolio || /^https?:\/\/[^\s]+$/i.test(trimmedPortfolio);
+  const buttonText = "Create My Career Analysis";
+  const roleDescription = ROLE_DESCRIPTIONS[role as TargetRole];
 
   function pick(f: File | undefined | null) {
     if (!f) return;
@@ -87,13 +90,16 @@ function Index() {
     setErrorMsg(null);
 
     const hasFile = Boolean(file);
-    const hasPortfolio = Boolean(portfolio && portfolio.trim().length > 0);
-
     if (!hasFile && !hasPortfolio) {
       setErrorMsg("Please upload a resume file OR provide a Portfolio/GitHub URL to run career analysis.");
       return;
     }
+    if (!portfolioValid) {
+      setErrorMsg("Please enter a valid portfolio URL starting with http:// or https://.");
+      return;
+    }
 
+    clearProfile();
     setLoadingStep(0);
 
     const stepInterval = setInterval(() => {
@@ -132,10 +138,9 @@ function Index() {
         saveProfile({
           resumeId: pipelineData.resumeId,
           portfolioId: pipelineData.portfolioId,
-          resumeName: fileMeta?.name ?? "Resume.pdf",
-          resumeSize: fileMeta?.size ?? 184320,
-          portfolio: portfolio.trim(),
-          linkedin: linkedin.trim(),
+          resumeName: fileMeta?.name,
+          resumeSize: fileMeta?.size,
+          portfolio: hasPortfolio ? trimmedPortfolio : undefined,
           role: role,
           unifiedProfile: pipelineData.unifiedProfile,
           careerProfile: pipelineData.careerProfile,
@@ -168,8 +173,7 @@ function Index() {
             Your AI-powered career mentor
           </p>
           <p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground">
-            Upload your resume (PDF, DOCX, TXT), share your portfolio, and discover exactly what you should
-            learn next to become job-ready.
+            Start with your resume and a public portfolio link. We turn your real work into a focused career plan.
           </p>
         </header>
 
@@ -184,9 +188,14 @@ function Index() {
             </div>
           )}
 
-          <div className="grid gap-8 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <SectionLabel icon={<FileText className="size-4" />} text="Resume Upload (PDF, DOCX, TXT)" />
+          <div className="mb-7 text-center">
+            <p className="text-sm font-semibold text-primary">Your career profile starts here</p>
+            <p className="mt-1 text-sm text-muted-foreground">Add your resume, portfolio, or both. Each source makes your result stronger.</p>
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="rounded-xl border border-border bg-surface/60 p-5">
+              <SectionLabel icon={<FileText className="size-4" />} text="Upload Your Resume" />
+              <p className="mt-3 text-sm text-muted-foreground">Upload your PDF, DOCX or TXT resume. Optional.</p>
               {fileMeta ? (
                 <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-primary/40 bg-surface-2 p-4">
                   <div className="flex min-w-0 items-center gap-3">
@@ -233,7 +242,7 @@ function Index() {
                   }`}
                 >
                   <UploadCloud className="mx-auto size-8 text-primary" />
-                  <p className="mt-3 text-sm font-medium">Drag & drop your resume file here (optional)</p>
+                  <p className="mt-3 text-sm font-medium">Drag & drop your resume file here</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     PDF, DOCX, or TXT · max 10 MB
                   </p>
@@ -250,11 +259,11 @@ function Index() {
                 </div>
               )}
             </div>
-
-            <div>
-              <SectionLabel icon={<Github className="size-4" />} text="Portfolio" />
-              <Label htmlFor="portfolio" className="mt-3 mb-2 block text-xs text-muted-foreground">
-                GitHub / Portfolio URL (optional)
+            <div className="rounded-xl border border-border bg-surface/60 p-5">
+              <SectionLabel icon={<Github className="size-4" />} text="Add Your Portfolio" />
+              <p className="mt-3 text-sm text-muted-foreground">GitHub or a personal portfolio link. We read public project pages, descriptions, and listed technologies.</p>
+              <Label htmlFor="portfolio" className="mt-4 mb-2 block text-xs text-muted-foreground">
+                Portfolio URL
               </Label>
               <Input
                 id="portfolio"
@@ -263,19 +272,12 @@ function Index() {
                 placeholder="https://github.com/username"
                 className="bg-surface-2"
               />
-              <Label htmlFor="linkedin" className="mt-4 mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Linkedin className="size-3.5" /> LinkedIn URL (optional)
-              </Label>
-              <Input
-                id="linkedin"
-                value={linkedin}
-                onChange={(e) => setLinkedin(e.target.value)}
-                placeholder="https://linkedin.com/in/username"
-                className="bg-surface-2"
-              />
+              <p className={`mt-2 text-xs ${portfolioValid ? "text-muted-foreground" : "text-destructive"}`}>
+                {hasPortfolio ? (portfolioValid ? "Valid URL" : "Enter a valid http:// or https:// URL") : "Example: https://github.com/username"}
+              </p>
             </div>
 
-            <div>
+            <div className="md:col-span-2">
               <SectionLabel icon={<Target className="size-4" />} text="Target Career" />
               <Label className="mt-3 mb-2 block text-xs text-muted-foreground">
                 Which role are you aiming for?
@@ -292,8 +294,8 @@ function Index() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="mt-4 rounded-lg border border-border bg-surface-2/60 p-3 text-xs leading-relaxed text-muted-foreground">
-                We analyze your resume & portfolio with Gemini AI to generate a unified student profile, detect skill gaps, and build a personalized roadmap.
+              <p className="mt-3 rounded-lg border border-primary/20 bg-primary/8 p-3 text-sm leading-relaxed text-foreground/85">
+                <span className="font-semibold text-primary">What this role does: </span>{roleDescription}
               </p>
             </div>
           </div>
@@ -301,7 +303,7 @@ function Index() {
           <Button
             size="lg"
             onClick={analyze}
-            disabled={analyzing}
+            disabled={analyzing || (!file && !hasPortfolio) || !portfolioValid}
             className="glow mt-9 h-13 w-full bg-gradient-accent text-base font-semibold text-primary-foreground hover:opacity-90"
           >
             {analyzing ? (
@@ -312,7 +314,7 @@ function Index() {
             ) : (
               <>
                 <BrainCircuit className="size-5" />
-                Analyze My Resume & Career
+                {buttonText}
               </>
             )}
           </Button>

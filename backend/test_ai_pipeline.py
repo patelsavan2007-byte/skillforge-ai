@@ -7,8 +7,7 @@ BASE_URL = "http://localhost:8000"
 class TestAIPipeline(unittest.TestCase):
     def setUp(self):
         self.client = httpx.Client(base_url=BASE_URL, timeout=15.0)
-        # Unique user per test so the analyze endpoint's "latest resume" fallback
-        # never leaks state between test cases (idempotent / repeatable runs).
+        # Unique user per test keeps test records isolated and repeatable.
         self.user_id = f"test_user_pipeline_{uuid.uuid4().hex[:12]}"
 
     def tearDown(self):
@@ -112,6 +111,27 @@ class TestAIPipeline(unittest.TestCase):
         self.assertIsInstance(unified["skills"], list)
         self.assertIn("careerProfile", res["data"])
         self.assertIn("learningPath", res["data"])
+
+    def test_07_portfolio_only_after_resume_does_not_reuse_resume(self):
+        headers = {"X-User-ID": self.user_id}
+        resume_content = b"Taylor Example\nSkills: ResumeOnlySkill, Python\nProjects: Resume Only Project"
+        resume_response = self.client.post(
+            "/api/career-profiles/analyze",
+            files={"file": ("resume.txt", resume_content, "text/plain")},
+            data={"target_role": "Software Engineer"},
+            headers=headers,
+        )
+        self.assertEqual(resume_response.status_code, 200)
+
+        portfolio_response = self.client.post(
+            "/api/career-profiles/analyze",
+            data={"portfolio_url": "https://github.com/torvalds", "target_role": "Software Engineer"},
+            headers=headers,
+        )
+        self.assertEqual(portfolio_response.status_code, 200)
+        unified = portfolio_response.json()["data"]["unifiedProfile"]
+        self.assertEqual(unified["source"], {"resume": False, "portfolio": True})
+        self.assertNotIn("ResumeOnlySkill", unified["skills"])
 
 if __name__ == "__main__":
     unittest.main()

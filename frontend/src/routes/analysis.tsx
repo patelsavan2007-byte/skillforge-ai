@@ -88,6 +88,19 @@ function AnalysisPage() {
     }
   }, [unified]);
 
+  if (!profile) {
+    return (
+      <main className="hero-glow min-h-[calc(100vh-72px)] px-5 py-16">
+        <section className="panel mx-auto max-w-2xl p-8 text-center sm:p-12">
+          <span className="inline-flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary"><FileText className="size-7" /></span>
+          <h1 className="mt-6 text-3xl font-bold">Start with your career profile</h1>
+          <p className="mx-auto mt-3 max-w-lg text-muted-foreground">Upload a resume or add a public portfolio link first. Once we have your information, your personalized analysis will appear here.</p>
+          <Button asChild size="lg" className="glow mt-8 bg-gradient-accent text-primary-foreground"><Link to="/">Upload & start analysis <ArrowRight className="size-4" /></Link></Button>
+        </section>
+      </main>
+    );
+  }
+
   function openEditModal() {
     if (unified) {
       setEditSkills(unified.skills ? [...unified.skills] : []);
@@ -151,6 +164,7 @@ function AnalysisPage() {
             </div>
             <div className="mt-3 flex items-center gap-3 text-sm text-muted-foreground">
               <span>Target Role: <strong className="text-foreground font-semibold">{role}</strong></span>
+              <span className="font-medium text-foreground">Analysis Sources:</span>
               {unified?.source && (
                 <div className="flex items-center gap-2">
                   {unified.source.resume && (
@@ -195,7 +209,7 @@ function AnalysisPage() {
 
         {/* Unified Skills & Projects */}
         <div className="mt-6 grid gap-6 lg:grid-cols-5">
-          <Panel className="lg:col-span-3" title="Unified Extracted Skills (Resume + Portfolio)">
+          <Panel className="lg:col-span-3" title="Unified Extracted Skills">
             <div className="flex flex-wrap gap-2">
               {displaySkills.map((skill, idx) => (
                 <Badge
@@ -203,6 +217,7 @@ function AnalysisPage() {
                   variant="outline"
                   className="rounded-lg border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-medium text-foreground hover:border-primary"
                 >
+                  <span className="grid size-4 place-items-center rounded bg-primary/20 text-[9px] font-bold text-primary">{skill.slice(0, 1)}</span>
                   {skill}
                 </Badge>
               ))}
@@ -231,6 +246,7 @@ function AnalysisPage() {
                       <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
                       <div>
                         <p className="text-sm font-medium">{p.name}</p>
+                        <Badge variant="outline" className="mt-1 text-[10px]">{p.source === "both" ? "Both" : p.source === "resume" ? "Resume" : "Portfolio"}</Badge>
                         {p.description && <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{p.description}</p>}
                         {p.technologies && p.technologies.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">

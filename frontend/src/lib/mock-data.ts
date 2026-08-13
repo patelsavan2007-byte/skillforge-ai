@@ -1,13 +1,42 @@
 export const TARGET_ROLES = [
   "AI/ML Engineer",
   "Data Scientist",
-  "Software Engineer",
-  "Full Stack Developer",
   "Data Analyst",
+  "Data Engineer",
+  "Software Engineer",
+  "Frontend Developer",
+  "Backend Developer",
+  "Full Stack Developer",
+  "Mobile App Developer",
+  "DevOps Engineer",
+  "Cloud Engineer",
   "Cybersecurity Engineer",
+  "UI/UX Designer",
+  "Product Manager",
+  "QA Automation Engineer",
+  "Blockchain Developer",
 ] as const;
 
 export type TargetRole = (typeof TARGET_ROLES)[number];
+
+export const ROLE_DESCRIPTIONS: Record<TargetRole, string> = {
+  "AI/ML Engineer": "Build, deploy, and improve intelligent products using data and machine-learning models.",
+  "Data Scientist": "Turn data into insights, experiments, and predictive business decisions.",
+  "Data Analyst": "Explore data, build dashboards, and communicate clear business insights.",
+  "Data Engineer": "Design dependable data pipelines, warehouses, and data platforms.",
+  "Software Engineer": "Build reliable software systems with strong programming and problem-solving skills.",
+  "Frontend Developer": "Create fast, accessible, polished web interfaces people enjoy using.",
+  "Backend Developer": "Build APIs, databases, and secure services that power applications.",
+  "Full Stack Developer": "Own complete web features from a refined interface to a robust backend.",
+  "Mobile App Developer": "Create high-quality mobile experiences for Android and iOS.",
+  "DevOps Engineer": "Automate delivery, infrastructure, observability, and reliable deployments.",
+  "Cloud Engineer": "Build, migrate, and operate scalable cloud infrastructure.",
+  "Cybersecurity Engineer": "Protect systems, applications, and data through secure engineering practices.",
+  "UI/UX Designer": "Research user needs and design intuitive, attractive product experiences.",
+  "Product Manager": "Shape product direction by connecting user needs, strategy, and delivery.",
+  "QA Automation Engineer": "Create test systems that keep software releases dependable and fast.",
+  "Blockchain Developer": "Build decentralized applications, smart contracts, and Web3 infrastructure.",
+};
 
 export const readiness = 68;
 

@@ -79,6 +79,12 @@ export function saveProfile(profile: AnalysisPipelineResult) {
   window.dispatchEvent(new Event("skillforge-profile-update"));
 }
 
+export function clearProfile() {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(KEY);
+  window.dispatchEvent(new Event("skillforge-profile-update"));
+}
+
 export function useProfile(): AnalysisPipelineResult | null {
   const [profile, setProfile] = useState<AnalysisPipelineResult | null>(() => {
     if (typeof window === "undefined") return null;
@@ -100,7 +106,7 @@ export function useProfile(): AnalysisPipelineResult | null {
         } catch {
           setProfile(null);
         }
-      }
+      } else setProfile(null);
     };
 
     window.addEventListener("skillforge-profile-update", sync);
