@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+import re
 
 from app.config import settings
 from app.database.mongodb import connect_to_mongodb, close_mongodb_connection
@@ -34,14 +35,12 @@ app = FastAPI(
 # CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list({
-        settings.FRONTEND_URL,
-        "http://localhost:5173", "http://127.0.0.1:5173",
-        "http://localhost:3173", "http://127.0.0.1:3173",
-    }),
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app|.*\.onrender\.com)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Session middleware configuration
@@ -51,9 +50,16 @@ app.add_middleware(
     secret_key=settings.SESSION_SECRET,
     session_cookie="skillforge_session",
     max_age=14 * 24 * 3600,
-    same_site="lax",
+    same_site="none" if is_production else "lax",
     https_only=is_production,
 )
+
+@app.middleware("http")
+async def normalize_path_middleware(request: Request, call_next):
+    # Normalize consecutive slashes in request path (e.g. //api/auth/me -> /api/auth/me)
+    if "//" in request.scope.get("path", ""):
+        request.scope["path"] = re.sub(r"/+", "/", request.scope["path"])
+    return await call_next(request)
 
 # Register routers
 app.include_router(auth_router)

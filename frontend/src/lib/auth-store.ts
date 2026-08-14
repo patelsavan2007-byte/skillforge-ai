@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { API_BASE_URL } from "./api-config";
 
 export type AuthUser = {
   id: string;
@@ -8,8 +9,6 @@ export type AuthUser = {
   provider?: "password" | "google";
   sessionId?: string;
 };
-
-const API_BASE_URL = import.meta.env["VITE_API_URL"] || "http://localhost:8000";
 const KEY = "skillforge-auth";
 
 const listeners = new Set<() => void>();

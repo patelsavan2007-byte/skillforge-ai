@@ -25,8 +25,7 @@ import {
 import { ROLE_DESCRIPTIONS, TARGET_ROLES, type TargetRole } from "@/lib/mock-data";
 import { clearProfile, formatBytes, saveProfile } from "@/lib/profile-store";
 import { getSession } from "@/lib/auth-store";
-
-const API_BASE_URL = import.meta.env["VITE_API_URL"] || "http://localhost:8000";
+import { API_BASE_URL } from "@/lib/api-config";
 
 const LOADING_STEPS = [
   "Parsing candidate resume (PDF/DOCX/TXT)…",

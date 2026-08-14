@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/auth/google/callback"
     FRONTEND_URL: str = "http://localhost:5173"
+    ALLOWED_ORIGINS: str = ""
     SESSION_SECRET: str = "skillforge_ai_super_secret_session_key_2026_x89q"
     MONGODB_URI: str = ""
     MONGODB_DATABASE: str = "skillforge"
@@ -37,6 +38,25 @@ class Settings(BaseSettings):
             or bool(os.getenv("RENDER_SERVICE_ID"))
         )
     )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        origins = {
+            "http://localhost:5173", "http://127.0.0.1:5173",
+            "http://localhost:3000", "http://127.0.0.1:3000",
+            "http://localhost:3173", "http://127.0.0.1:3173",
+        }
+        if self.FRONTEND_URL:
+            for url in self.FRONTEND_URL.split(","):
+                cleaned = url.strip().rstrip("/")
+                if cleaned:
+                    origins.add(cleaned)
+        if self.ALLOWED_ORIGINS:
+            for url in self.ALLOWED_ORIGINS.split(","):
+                cleaned = url.strip().rstrip("/")
+                if cleaned:
+                    origins.add(cleaned)
+        return list(origins)
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,

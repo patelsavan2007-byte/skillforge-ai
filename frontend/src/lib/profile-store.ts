@@ -149,7 +149,7 @@ export type AnalysisPipelineResult = {
   progress?: ProgressData | undefined;
 };
 
-const API_BASE_URL = import.meta.env["VITE_API_URL"] || "http://localhost:8000";
+import { API_BASE_URL } from "./api-config";
 let hydrationRequest: Promise<AnalysisPipelineResult | null> | null = null;
 
 function getProfileStorageKey(userId?: string, sessionId?: string): string {
