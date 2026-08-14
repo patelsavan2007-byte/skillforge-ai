@@ -675,16 +675,7 @@ function PlanPage() {
                         {item.keyConcept}
                       </p>
                     )}
-                    {item.url ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="mt-4 w-full border-primary/30 text-primary hover:bg-primary/10"
-                        onClick={() => window.open(item.url, "_blank")}
-                      >
-                        Open Practice Website ↗
-                      </Button>
-                    ) : (
+                    {!item.url && (
                       <Button
                         variant="outline"
                         size="sm"
