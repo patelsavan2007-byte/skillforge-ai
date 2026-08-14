@@ -22,6 +22,22 @@ class Settings(BaseSettings):
     CHROMADB_DIR: str = os.path.join(BACKEND_DIR, "app", "data", "chroma_db")
     CHROMA_COLLECTION_NAME: str = "skillforge_courses"
 
+    # Memory optimization settings for Render Free / constrained hosting
+    LOW_MEMORY_MODE: bool = (
+        os.getenv("LOW_MEMORY_MODE", "").lower() in ("true", "1")
+        or os.getenv("RENDER", "").lower() in ("true", "1")
+        or bool(os.getenv("RENDER_SERVICE_ID"))
+    )
+    ENABLE_HEAVY_MODELS: bool = (
+        os.getenv("ENABLE_HEAVY_MODELS", "").lower() in ("true", "1")
+        if "ENABLE_HEAVY_MODELS" in os.environ
+        else not (
+            os.getenv("LOW_MEMORY_MODE", "").lower() in ("true", "1")
+            or os.getenv("RENDER", "").lower() in ("true", "1")
+            or bool(os.getenv("RENDER_SERVICE_ID"))
+        )
+    )
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,
         env_file_encoding="utf-8",
@@ -41,5 +57,7 @@ def _log_config_status():
     print(f"[Config] ENVIRONMENT: {settings.ENVIRONMENT}")
     print(f"[Config] MONGODB_DATABASE: {settings.MONGODB_DATABASE}")
     print(f"[Config] GEMINI_API_KEY loaded: {'YES' if settings.GEMINI_API_KEY else 'NO (empty)'}")
+    print(f"[Config] LOW_MEMORY_MODE: {settings.LOW_MEMORY_MODE}")
+    print(f"[Config] ENABLE_HEAVY_MODELS: {settings.ENABLE_HEAVY_MODELS}")
 
 _log_config_status()

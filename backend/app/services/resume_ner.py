@@ -1,7 +1,7 @@
+import gc
 import re
 import logging
 from typing import List, Dict, Any, Optional
-from transformers import pipeline
 
 from app.config import settings
 
@@ -22,7 +22,7 @@ class ResumeNERService:
         self.model_name = getattr(settings, "RESUME_NER_MODEL", "oksomu/resume-ner")
         self.min_confidence = getattr(settings, "RESUME_NER_MIN_CONFIDENCE", 0.60)
         self.pipe = None
-        self._load_model()
+        self._tried_loading = False
 
     @classmethod
     def get_instance(cls) -> "ResumeNERService":
@@ -31,31 +31,38 @@ class ResumeNERService:
         return cls._instance
 
     def _load_model(self):
+        """Lazy load Hugging Face NER model only if heavy models are enabled and memory permits."""
+        if self._tried_loading:
+            return
+        self._tried_loading = True
+
+        if getattr(settings, "LOW_MEMORY_MODE", False) or not getattr(settings, "ENABLE_HEAVY_MODELS", True):
+            logger.info("Low memory mode active: Skipping Hugging Face NER model load to conserve RAM.")
+            self.pipe = None
+            return
+
         try:
             logger.info("Initializing Hugging Face NER pipeline with model: %s", self.model_name)
-            print(f"Loading Hugging Face model: {self.model_name}...")
+            # Lazy import to avoid loading torch/transformers into memory at module startup
+            from transformers import pipeline
+
             self.pipe = pipeline(
                 "token-classification",
                 model=self.model_name,
                 aggregation_strategy="simple"
             )
-            # oksomu/resume-ner is DistilBERT-based.  Some tokenizer versions
+            # oksomu/resume-ner is DistilBERT-based. Some tokenizer versions
             # emit token_type_ids although DistilBertForTokenClassification does
-            # not accept them.  Remove that optional input at the tokenizer /
-            # pipeline boundary rather than changing the model or disabling NER.
+            # not accept them. Remove that optional input at the tokenizer boundary.
             input_names = list(getattr(self.pipe.tokenizer, "model_input_names", []))
             if "token_type_ids" in input_names:
                 self.pipe.tokenizer.model_input_names = [
                     name for name in input_names if name != "token_type_ids"
                 ]
                 logger.info("Disabled unsupported token_type_ids for %s", self.model_name)
-            print(f"Model {self.model_name} loaded successfully!")
             logger.info("Model %s loaded successfully", self.model_name)
-        except Exception as e:
-            logger.error("Failed to load NER model %s: %s", self.model_name, str(e))
-            print(f"Error loading NER model {self.model_name}: {e}")
-            # Keep the extraction pipeline available with deterministic parsing when
-            # a model download is unavailable. Gemini is never used as a fallback.
+        except (ImportError, MemoryError, OSError, Exception) as e:
+            logger.warning("Failed to load NER model %s (%s). Using deterministic extraction.", self.model_name, str(e))
             self.pipe = None
 
     def preprocess_text(self, text: str) -> str:
@@ -120,6 +127,14 @@ class ResumeNERService:
         clean_text = self.preprocess_text(text)
         if not clean_text:
             return []
+
+        # If in low-memory mode or heavy models disabled, return empty entities to use deterministic parser
+        if getattr(settings, "LOW_MEMORY_MODE", False) or not getattr(settings, "ENABLE_HEAVY_MODELS", True):
+            return []
+
+        if not self._tried_loading:
+            self._load_model()
+
         if not self.pipe:
             return []
 
@@ -167,6 +182,8 @@ class ResumeNERService:
                 "score": round(score, 4)
             })
 
+        # Explicit garbage collection
+        gc.collect()
         return processed_entities
 
 

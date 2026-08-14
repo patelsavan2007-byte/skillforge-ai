@@ -69,14 +69,16 @@ app.include_router(progress_router)
 def root():
     return {
         "status": "ok",
-        "message": "SkillForge AI backend is running"
+        "message": "SkillForge AI backend is running",
+        "low_memory_mode": getattr(settings, "LOW_MEMORY_MODE", False),
     }
 
 @app.get("/health")
 def health():
     return {
         "status": "ok",
-        "message": "Backend is running"
+        "message": "Backend is running",
+        "low_memory_mode": getattr(settings, "LOW_MEMORY_MODE", False),
     }
 
 @app.get("/api/health", tags=["health"])
@@ -85,5 +87,7 @@ async def health_check():
         "status": "ok",
         "service": "skillforge-ai-api",
         "database": "mongodb_atlas",
+        "low_memory_mode": getattr(settings, "LOW_MEMORY_MODE", False),
+        "enable_heavy_models": getattr(settings, "ENABLE_HEAVY_MODELS", True),
     }
 

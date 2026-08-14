@@ -16,6 +16,9 @@ def _get_client() -> Any:
     global _CLIENT
     if _CLIENT is not None:
         return _CLIENT
+    if getattr(settings, "LOW_MEMORY_MODE", False) or not getattr(settings, "ENABLE_HEAVY_MODELS", True):
+        logger.debug("Low memory mode active: Skipping ChromaDB client initialization.")
+        return None
     try:
         import chromadb
 
@@ -23,8 +26,8 @@ def _get_client() -> Any:
         path.mkdir(parents=True, exist_ok=True)
         _CLIENT = chromadb.PersistentClient(path=str(path))
         return _CLIENT
-    except Exception as exc:
-        logger.warning("ChromaDB is unavailable: %s", exc)
+    except (ImportError, MemoryError, OSError, Exception) as exc:
+        logger.warning("ChromaDB is unavailable or memory constrained: %s", exc)
         return None
 
 
