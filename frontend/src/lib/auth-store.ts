@@ -10,27 +10,11 @@ export type AuthUser = {
 
 const API_BASE_URL = import.meta.env["VITE_API_URL"] || "http://localhost:8000";
 const KEY = "skillforge-auth";
-const USERS_KEY = "skillforge-auth-users";
-
-type StoredUser = AuthUser & { password?: string };
 
 const listeners = new Set<() => void>();
 
 function emit() {
   listeners.forEach((l) => l());
-}
-
-function readUsers(): StoredUser[] {
-  if (typeof window === "undefined") return [];
-  try {
-    return JSON.parse(localStorage.getItem(USERS_KEY) ?? "[]") as StoredUser[];
-  } catch {
-    return [];
-  }
-}
-
-function writeUsers(users: StoredUser[]) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
 
 export function getSession(): AuthUser | null {
@@ -43,6 +27,14 @@ export function getSession(): AuthUser | null {
   }
 }
 
+export function getAuthHeaders(): Record<string, string> {
+  const session = getSession();
+  if (session?.id) {
+    return { "X-User-ID": session.id };
+  }
+  return {};
+}
+
 function setSession(user: AuthUser | null) {
   if (user) {
     localStorage.setItem(KEY, JSON.stringify(user));
@@ -52,15 +44,17 @@ function setSession(user: AuthUser | null) {
   emit();
 }
 
-function delay(ms = 700) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 export async function fetchCurrentUser(): Promise<AuthUser | null> {
   try {
+    const local = getSession();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (local?.id) {
+      headers["X-User-ID"] = local.id;
+    }
+
     const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
       method: "GET",
-      headers: { "Content-Type": "application/json" },
+      headers,
       credentials: "include",
     });
     if (res.ok) {
@@ -71,10 +65,14 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
           name: data.user.name,
           email: data.user.email,
           profile_picture: data.user.profile_picture || "",
-          provider: "google",
+          provider: data.user.provider || "google",
         };
         setSession(user);
         return user;
+      } else {
+        // Unauthenticated according to backend
+        setSession(null);
+        return null;
       }
     }
   } catch (err) {
@@ -84,16 +82,27 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
 }
 
 export async function signIn(email: string, password: string): Promise<AuthUser> {
-  await delay();
-  const user = readUsers().find((u) => u.email.toLowerCase() === email.toLowerCase());
-  if (!user) throw new Error("No account found with that email address.");
-  if (user.provider === "google" && !user.password) {
-    throw new Error("This account was created with Google. Continue with Google instead.");
+  const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email, password }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(data.detail || data.message || "Failed to sign in. Please check your credentials.");
   }
-  if (user.password !== password) throw new Error("Incorrect password. Please try again.");
-  const { password: _pw, ...safe } = user;
-  setSession(safe);
-  return safe;
+
+  const user: AuthUser = {
+    id: data.user.id,
+    name: data.user.name,
+    email: data.user.email,
+    profile_picture: data.user.profile_picture || "",
+    provider: data.user.provider || "password",
+  };
+  setSession(user);
+  return user;
 }
 
 export async function signUp(
@@ -101,22 +110,27 @@ export async function signUp(
   email: string,
   password: string,
 ): Promise<AuthUser> {
-  await delay();
-  const users = readUsers();
-  if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
-    throw new Error("An account with that email already exists.");
+  const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ name, email, password }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(data.detail || data.message || "Failed to create account.");
   }
-  const user: StoredUser = {
-    id: crypto.randomUUID(),
-    name,
-    email,
-    provider: "password",
-    password,
+
+  const user: AuthUser = {
+    id: data.user.id,
+    name: data.user.name,
+    email: data.user.email,
+    profile_picture: data.user.profile_picture || "",
+    provider: data.user.provider || "password",
   };
-  writeUsers([...users, user]);
-  const { password: _pw, ...safe } = user;
-  setSession(safe);
-  return safe;
+  setSession(user);
+  return user;
 }
 
 export function signInWithGoogle(): void {
@@ -124,16 +138,16 @@ export function signInWithGoogle(): void {
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
-  await delay();
-  if (!readUsers().some((u) => u.email.toLowerCase() === email.toLowerCase())) {
-    throw new Error("No account found with that email address.");
-  }
+  // In a full implementation this sends a reset email
+  await new Promise((r) => setTimeout(r, 600));
 }
 
 export async function signOut(): Promise<void> {
   try {
+    const local = getSession();
     await fetch(`${API_BASE_URL}/api/auth/logout`, {
       method: "POST",
+      headers: local?.id ? { "X-User-ID": local.id } : {},
       credentials: "include",
     });
   } catch (err) {
@@ -189,4 +203,5 @@ export function validatePassword(password: string) {
     return "Use at least one letter and one number.";
   return null;
 }
+
 

@@ -90,11 +90,11 @@ async def analyze_career_pipeline(
         unified_profile=unified_profile
     )
 
-    # Generate personalized recommendations & roadmap
+    # Generate personalized recommendations & roadmap with dynamic duration
     learning_doc = create_learning_path_record(
         user_id=user_id,
         target_role=target,
-        duration_weeks=8,
+        duration_weeks=None,
         unified_profile=unified_profile,
         skill_gaps=career_doc.get("true_skill_gaps", []),
         user_strengths=career_doc.get("user_strengths", [])

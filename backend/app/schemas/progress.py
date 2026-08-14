@@ -25,6 +25,10 @@ class ProgressUpdate(BaseModel):
     roadmapProgress: Optional[int] = None
     interviewScore: Optional[int] = None
     careerReadiness: Optional[int] = None
+    initialReadiness: Optional[int] = None
+    improvedScore: Optional[int] = None
+    completedGaps: Optional[List[str]] = None
+    remainingGaps: Optional[List[str]] = None
     # Fields linking progress to real career analysis
     targetRole: Optional[str] = None
     skillGapItems: Optional[List[str]] = None
@@ -40,7 +44,11 @@ class ProgressResponse(BaseModel):
     completedProjects: List[Any] = []
     roadmapProgress: int = 0
     interviewScore: int = 0
+    initialReadiness: int = 0
     careerReadiness: int = 0
+    improvedScore: int = 0
+    completedGaps: List[str] = []
+    remainingGaps: List[str] = []
     # Fields linking progress to real career analysis
     targetRole: Optional[str] = None
     skillGapItems: List[str] = []

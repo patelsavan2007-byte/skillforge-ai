@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional, List
 
 from app.database.mongodb import get_learning_paths_collection, get_progress_collection
 from app.utils.object_id import serialize_doc, validate_object_id
+from app.services.recommendation_engine import calculate_weighted_readiness
 
 
 def _skill_progress_items(true_skill_gaps: List[str], roadmap: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -12,6 +13,7 @@ def _skill_progress_items(true_skill_gaps: List[str], roadmap: List[Dict[str, An
         matching = [
             milestone for milestone in roadmap
             if skill.casefold() in {str(value).casefold() for value in milestone.get("skills", [])}
+            or skill.casefold() == str(milestone.get("skill", "")).casefold()
         ]
         completed = sum(1 for milestone in matching if milestone.get("completed", False))
         if matching and completed == len(matching):
@@ -26,7 +28,14 @@ def _skill_progress_items(true_skill_gaps: List[str], roadmap: List[Dict[str, An
 
 def _roadmap_tracking(roadmap: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
-        {"week": item.get("week"), "completed": bool(item.get("completed", False)), "skills": item.get("skills", [])}
+        {
+            "week": item.get("week"),
+            "title": item.get("title", ""),
+            "skill": item.get("skill", ""),
+            "status": "completed" if item.get("completed", False) else "not_started",
+            "completed": bool(item.get("completed", False)),
+            "skills": item.get("skills", [])
+        }
         for item in roadmap if isinstance(item, dict)
     ]
 
@@ -43,13 +52,16 @@ def get_user_progress(user_id: str) -> Dict[str, Any]:
         now = datetime.utcnow()
         empty_doc = {
             "userId": user_id,
-            # No hardcoded skills — real skills come from career analysis
             "skills": {},
             "completedCourses": [],
             "completedProjects": [],
             "roadmapProgress": 0,
             "interviewScore": 0,
+            "initialReadiness": 0,
             "careerReadiness": 0,
+            "improvedScore": 0,
+            "completedGaps": [],
+            "remainingGaps": [],
             # Career-analysis-linked fields
             "targetRole": None,
             "skillGapItems": [],
@@ -78,17 +90,7 @@ def initialize_progress_from_career_analysis(
     roadmap: List[Dict[str, Any]],
     career_readiness: int = 0,
 ) -> Dict[str, Any]:
-    """Seed or reset the user's progress document from the real career analysis output.
-
-    This is called immediately after a career analysis is generated so that
-    progress is always linked to the user's actual true_skill_gaps and roadmap,
-    never to hardcoded defaults.
-
-    - totalRoadmapItems is the number of roadmap milestones generated.
-    - completedRoadmapItems starts at 0 (or counts pre-completed ones from roadmap).
-    - roadmapProgress is calculated deterministically: completed / total * 100.
-    - skillGapItems comes directly from true_skill_gaps (deterministic engine output).
-    """
+    """Seed or reset the user's progress document from the real career analysis output."""
     progress_col = get_progress_collection()
     now = datetime.utcnow()
 
@@ -105,11 +107,13 @@ def initialize_progress_from_career_analysis(
         "totalRoadmapItems": total,
         "completedRoadmapItems": completed,
         "roadmapProgress": progress_pct,
+        "initialReadiness": career_readiness,
         "careerReadiness": career_readiness,
-        # Reset completion lists when a new analysis is generated
+        "improvedScore": 0,
+        "completedGaps": [],
+        "remainingGaps": list(true_skill_gaps),
         "completedCourses": [],
         "completedProjects": [],
-        # No hardcoded skills map — real skills come from true_skill_gaps
         "skills": {},
         "updatedAt": now,
     }
@@ -129,7 +133,7 @@ def toggle_roadmap_checkpoint(
     completed: bool,
     learning_path_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Persist one user's roadmap checkpoint and deterministically recalculate progress."""
+    """Persist one user's roadmap checkpoint and deterministically recalculate progress & career readiness."""
     paths_col = get_learning_paths_collection()
     progress_col = get_progress_collection()
 
@@ -147,26 +151,66 @@ def toggle_roadmap_checkpoint(
     for milestone in roadmap:
         if isinstance(milestone, dict) and milestone.get("week") == week:
             milestone["completed"] = completed
+            milestone["status"] = "completed" if completed else "not_started"
+            if completed:
+                milestone["completed_at"] = datetime.utcnow().isoformat()
+            else:
+                milestone["completed_at"] = None
             found = True
             break
     if not found:
         raise ValueError("Roadmap milestone not found")
 
     now = datetime.utcnow()
-    # User-scoped _id makes this update safe even if another user supplies an ID.
     paths_col.update_one({"_id": path_doc["_id"], "userId": user_id}, {"$set": {"roadmap": roadmap, "updatedAt": now}})
 
     existing = progress_col.find_one({"userId": user_id}) or {}
     gaps = existing.get("skillGapItems") or path_doc.get("true_skill_gaps") or []
+    target_role = existing.get("targetRole") or path_doc.get("targetRole") or "Full Stack Developer"
+    user_strengths = path_doc.get("user_strengths") or []
+    initial_readiness = existing.get("initialReadiness") or path_doc.get("initialReadiness") or existing.get("careerReadiness", 50)
+
     total = len(roadmap)
     completed_count = sum(1 for item in roadmap if isinstance(item, dict) and item.get("completed", False))
     progress_pct = int((completed_count / total) * 100) if total else 0
+
+    # Determine which skill gaps have been completed
+    completed_skills_covered = set()
+    for item in roadmap:
+        if isinstance(item, dict) and item.get("completed", False):
+            for s in item.get("skills", []):
+                completed_skills_covered.add(str(s).strip().lower())
+            if item.get("skill"):
+                completed_skills_covered.add(str(item.get("skill")).strip().lower())
+
+    completed_gaps = [
+        g for g in gaps
+        if g.strip().lower() in completed_skills_covered
+    ]
+    remaining_gaps = [
+        g for g in gaps
+        if g.strip().lower() not in completed_skills_covered
+    ]
+
+    # Recalculate dynamic career readiness
+    current_readiness = calculate_weighted_readiness(
+        target_role=target_role,
+        demonstrated_skills=user_strengths,
+        completed_skills=completed_gaps,
+    )
+    improved_score = max(0, current_readiness - initial_readiness)
+
     set_fields = {
         "totalRoadmapItems": total,
         "completedRoadmapItems": completed_count,
         "roadmapProgress": progress_pct,
         "roadmapItems": _roadmap_tracking(roadmap),
         "skillProgress": _skill_progress_items(gaps, roadmap),
+        "initialReadiness": initial_readiness,
+        "careerReadiness": current_readiness,
+        "improvedScore": improved_score,
+        "completedGaps": completed_gaps,
+        "remainingGaps": remaining_gaps,
         "updatedAt": now,
     }
     progress_doc = progress_col.find_one_and_update(

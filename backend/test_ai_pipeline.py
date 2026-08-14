@@ -140,5 +140,35 @@ class TestAIPipeline(unittest.TestCase):
         self.assertEqual(unified["source"], {"resume": False, "portfolio": True})
         self.assertNotIn("ResumeOnlySkill", unified["skills"])
 
+    def test_08_new_plan_progress_starts_at_zero(self):
+        headers = {"X-User-ID": self.user_id}
+        resume_content = (
+            "Alex Mercer\nalex@example.com\n"
+            "Skills: React, Node.js, PostgreSQL, Docker\n"
+            "Projects: Full Stack App (React, Node.js)"
+        ).encode("utf-8")
+
+        files = {"file": ("resume.txt", resume_content, "text/plain")}
+        data = {"target_role": "Full Stack Developer"}
+
+        resp = self.client.post(
+            "/api/career-profiles/analyze",
+            files=files,
+            data=data,
+            headers=headers
+        )
+        self.assertEqual(resp.status_code, 200)
+        res = resp.json()
+        self.assertTrue(res["success"])
+        
+        progress = res["data"]["progress"]
+        self.assertEqual(progress["completedRoadmapItems"], 0)
+        self.assertEqual(progress["roadmapProgress"], 0)
+        self.assertGreater(progress["totalRoadmapItems"], 0)
+        
+        learning_path = res["data"]["learningPath"]
+        for milestone in learning_path.get("roadmap", []):
+            self.assertFalse(milestone.get("completed", False))
+
 if __name__ == "__main__":
     unittest.main()

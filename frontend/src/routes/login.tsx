@@ -49,6 +49,24 @@ function LoginPage() {
 
   useEffect(() => {
     if (ready && user) navigate({ to: "/", replace: true });
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const error = params.get("error");
+      if (error) {
+        if (error === "invalid_state") {
+          toast.error("Google login session expired or state mismatch. Please try again.");
+        } else if (error === "auth_failed") {
+          toast.error("Google authentication failed. Please check your credentials or try again.");
+        } else if (error === "access_denied") {
+          toast.error("Google sign-in was cancelled.");
+        } else {
+          toast.error(`Google authentication error: ${error}`);
+        }
+        // Clean URL params
+        window.history.replaceState({}, "", "/login");
+      }
+    }
   }, [ready, user, navigate]);
 
   async function onSubmit(e: React.FormEvent) {

@@ -66,17 +66,24 @@ def _sanitize_gemini_output(gemini_recs: Dict[str, Any], e5_courses: Optional[Li
         sanitized[key] = sanitized.get(key) if isinstance(sanitized.get(key), list) else []
     return sanitized
 
+from app.services.recommendation_engine import (
+    build_evidence_profile,
+    compute_prioritized_gaps,
+    calculate_dynamic_duration,
+    filter_and_validate_recommendations,
+)
+
 def generate_personalized_recommendations(
     unified_profile: Dict[str, Any],
     target_role: str,
     skill_gaps: List[Any],
-    duration_weeks: int = 8,
+    duration_weeks: Optional[int] = None,
     user_strengths: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Generate personalized roadmap, courses, projects, certifications, interview questions, and advice.
     E5 intfloat/e5-base-v2 is used for semantic course retrieval/ranking based on true skill gaps.
-    Combines E5 semantic retrieval + Gemini recommendations + fallback heuristics.
+    Combines E5 semantic retrieval + Gemini recommendations + fallback heuristics + quality filter.
     """
     # Extract string names of true_skill_gaps
     gap_names = _normalize_skill_names(skill_gaps)
@@ -86,171 +93,158 @@ def generate_personalized_recommendations(
     if not gap_names and unified_profile.get("true_skill_gaps"):
         gap_names = [s for s in unified_profile.get("true_skill_gaps", []) if isinstance(s, str)]
 
-    # 1. Perform E5 Semantic Course Retrieval & Cosine Similarity Ranking
+    # 1. Build evidence profile & compute prioritized gaps
+    evidence = build_evidence_profile(unified_profile, target_role)
+    prioritized_gaps = compute_prioritized_gaps(evidence, target_role)
+    
+    # Calculate dynamic duration unless explicitly overridden
+    dyn_duration = duration_weeks if (duration_weeks and duration_weeks > 0) else calculate_dynamic_duration(prioritized_gaps)
+
+    # 2. Perform E5 Semantic Course Retrieval & Cosine Similarity Ranking
     e5_ranked_courses = rank_courses_with_e5(gap_names, top_k=5)
 
-    # 2. Try Gemini Recommendation Engine with E5 context
+    # 3. Try Gemini Recommendation Engine with E5 context
     gemini_recs = generate_recommendations_with_gemini(
-        unified_profile, target_role, deterministic_strengths, gap_names, e5_courses=e5_ranked_courses
+        unified_profile,
+        target_role,
+        deterministic_strengths,
+        gap_names,
+        prioritized_gaps=prioritized_gaps,
+        dynamic_duration=dyn_duration,
+        e5_courses=e5_ranked_courses,
+        existing_projects=evidence.get("existing_projects", []),
     )
+    
     if gemini_recs and gemini_recs.get("roadmap"):
         gemini_recs = _sanitize_gemini_output(gemini_recs, e5_ranked_courses)
-        # Ensure E5 semantically ranked courses with real URLs take precedence
-        if e5_ranked_courses:
-            gemini_recs["courses"] = e5_ranked_courses
-        gemini_recs["user_strengths"] = deterministic_strengths
-        gemini_recs["true_skill_gaps"] = gap_names
-        return gemini_recs
+        filtered = filter_and_validate_recommendations(
+            gemini_recs, evidence, prioritized_gaps, target_role, e5_courses=e5_ranked_courses
+        )
+        filtered["user_strengths"] = deterministic_strengths
+        filtered["true_skill_gaps"] = gap_names
+        filtered["prioritized_gaps"] = prioritized_gaps
+        return filtered
 
-    # HEURISTIC FALLBACK TAILORED TO SKILL GAPS
-    primary_gap = gap_names[0] if gap_names else "Machine Learning"
-    secondary_gap = gap_names[1] if len(gap_names) > 1 else "Deep Learning"
-
-    roadmap = [
-        {
-            "week": 1,
-            "title": f"Fundamentals of {primary_gap}",
-            "skills": [primary_gap, "Core Principles"],
+    # 4. EVIDENCE-BASED HEURISTIC FALLBACK (no Gemini available)
+    # Build milestones dynamically from the actual gaps
+    roadmap = []
+    gaps_to_cover = gap_names if gap_names else ["Production Architecture", "System Design", "Cloud Deployment"]
+    
+    for w_idx in range(1, dyn_duration + 1):
+        if w_idx <= len(gaps_to_cover):
+            focus_gap = gaps_to_cover[w_idx - 1]
+            title = f"Mastering {focus_gap}"
+            skills = [focus_gap]
+        else:
+            focus_gap = gaps_to_cover[(w_idx - 1) % len(gaps_to_cover)]
+            title = f"Advanced {focus_gap} & Architecture"
+            skills = [focus_gap, "System Integration"]
+            
+        roadmap.append({
+            "week": w_idx,
+            "title": title,
+            "objective": f"Develop deep practical proficiency in {focus_gap} for {target_role} readiness.",
+            "why_this_week": f"Directly addresses verified {target_role} skill gap in {focus_gap}.",
+            "estimated_hours": "10-12 hours",
+            "skills": skills,
             "courses": [
                 {
-                    "title": f"Mastering {primary_gap}",
-                    "provider": "Coursera",
+                    "title": f"{focus_gap} for {target_role}s",
+                    "provider": "Coursera / Udemy",
                     "url": "",
                     "duration": "10 hours",
                     "difficulty": "Intermediate"
                 }
             ],
             "project": {
-                "title": f"{primary_gap} Hands-on Implementation",
-                "description": f"Build a practical project focusing on {primary_gap}.",
-                "skills": [primary_gap]
+                "title": f"Hands-on {focus_gap} System",
+                "description": f"Build and deploy an end-to-end module demonstrating {focus_gap}.",
+                "skills": skills
             },
-            "completed": True
-        },
-        {
-            "week": 2,
-            "title": f"Advanced {secondary_gap} & Architecture",
-            "skills": [secondary_gap, "System Design"],
-            "courses": [
-                {
-                    "title": f"{secondary_gap} Specialization",
-                    "provider": "DeepLearning.AI",
-                    "url": "",
-                    "duration": "15 hours",
-                    "difficulty": "Advanced"
-                }
-            ],
-            "project": {
-                "title": f"{secondary_gap} Production Pipeline",
-                "description": f"Develop an end-to-end pipeline implementing {secondary_gap}.",
-                "skills": [secondary_gap]
-            },
-            "completed": False
-        },
-        {
-            "week": 3,
-            "title": "API Integration & Docker Deployment",
-            "skills": ["FastAPI", "Docker", "REST API"],
-            "courses": [
-                {
-                    "title": "FastAPI & Docker Microservices",
-                    "provider": "Udemy",
-                    "url": "",
-                    "duration": "12 hours",
-                    "difficulty": "Intermediate"
-                }
-            ],
-            "project": {
-                "title": f"Dockerized {target_role} API",
-                "description": "Serve predictions via REST endpoints packaged in Docker.",
-                "skills": ["Docker", "FastAPI"]
-            },
-            "completed": False
-        },
-        {
-            "week": 4,
-            "title": "Industry Capstone & Portfolio Publishing",
-            "skills": ["Git", "CI/CD", "Documentation"],
-            "courses": [
-                {
-                    "title": f"{target_role} Production Best Practices",
-                    "provider": "SkillForge AI",
-                    "url": "",
-                    "duration": "20 hours",
-                    "difficulty": "Advanced"
-                }
-            ],
-            "project": {
-                "title": f"Production {target_role} System",
-                "description": "Deploy complete system with documentation, monitoring, and live demo link.",
-                "skills": [primary_gap, secondary_gap, "Docker", "FastAPI"]
-            },
-            "completed": False
-        }
-    ]
+            "completed": False  # CRITICAL: Always False for new plans
+        })
 
     courses = e5_ranked_courses if e5_ranked_courses else [
         {
-            "title": f"{primary_gap} Masterclass",
+            "title": f"{g} Masterclass" if idx == 0 else f"Advanced {g} in Production",
             "provider": "Coursera",
             "url": "",
             "duration": "12 hours",
             "difficulty": "Intermediate",
-            "skillAddressed": primary_gap
-        },
-        {
-            "title": f"{secondary_gap} in Production",
-            "provider": "Udemy",
-            "url": "",
-            "duration": "15 hours",
-            "difficulty": "Advanced",
-            "skillAddressed": secondary_gap
+            "skillAddressed": g,
+            "why_recommended": f"Targeted course to close skill gap in {g}"
         }
+        for idx, g in enumerate(gap_names[:4])
     ]
 
-
+    # Dynamic recommended projects targeting gaps
+    primary_gap = gap_names[0] if gap_names else "Full-Stack System"
+    secondary_gap = gap_names[1] if len(gap_names) > 1 else "Cloud Deployment"
+    
     recommended_projects = [
         {
-            "title": f"Real-world {primary_gap} System",
-            "description": f"Implement a complete system demonstrating mastery of {primary_gap}.",
-            "technologies": [primary_gap, "Python", "FastAPI"],
-            "difficulty": "Advanced"
+            "title": f"Production {target_role} Architecture: {primary_gap}",
+            "description": f"End-to-end production system implementing {primary_gap} with automated testing and deployment.",
+            "technologies": [primary_gap] + (deterministic_strengths[:2] if deterministic_strengths else ["FastAPI"]),
+            "difficulty": "Advanced",
+            "skills_gained": [primary_gap],
+            "skills_targeted": [primary_gap],
+            "why_recommended": f"Builds portfolio evidence for {primary_gap} required for {target_role}.",
+            "expected_resume_impact": f"Proves production readiness in {primary_gap}.",
+            "suggested_stack": [primary_gap, "Docker", "PostgreSQL"],
+            "url": "https://github.com/fastapi/full-stack-fastapi-template" if "stack" in target_role.lower() else "https://github.com/donnemartin/system-design-primer"
         },
         {
-            "title": f"End-to-End {target_role} Platform",
-            "description": f"Build and deploy a full-stack platform for {target_role} portfolio.",
-            "technologies": [primary_gap, secondary_gap, "Docker", "MongoDB"],
-            "difficulty": "Advanced"
+            "title": f"Scalable {secondary_gap} Platform",
+            "description": f"Deploy a distributed platform demonstrating {secondary_gap} and scalable system design.",
+            "technologies": [secondary_gap, primary_gap],
+            "difficulty": "Advanced",
+            "skills_gained": [secondary_gap],
+            "skills_targeted": [secondary_gap],
+            "why_recommended": f"Addresses secondary critical gap in {secondary_gap}.",
+            "expected_resume_impact": f"Demonstrates end-to-end architectural mastery in {secondary_gap}.",
+            "suggested_stack": [secondary_gap, "Docker", "CI/CD"],
+            "url": "https://github.com/donnemartin/system-design-primer"
         }
     ]
 
     certifications = [
-        {"name": f"Professional {target_role} Certificate", "provider": "Google / AWS", "priority": "High"},
-        {"name": f"Advanced {primary_gap} Developer", "provider": "DeepLearning.AI", "priority": "High"}
-    ]
+        {
+            "name": f"Certified {target_role} Practitioner",
+            "provider": "AWS / Google Cloud / Linux Foundation",
+            "skill": primary_gap,
+            "why_recommended": f"Industry-recognized credential validating {target_role} core competencies.",
+            "priority": "High",
+            "url": "https://aws.amazon.com/certification/" if "cloud" in target_role.lower() else "https://training.linuxfoundation.org/certification/"
+        }
+    ] if gap_names else []
 
     interview_prep = [
         {
             "topic": primary_gap,
-            "question": f"Explain key architectural trade-offs in {primary_gap} and how you optimize performance.",
-            "keyConcept": f"Core mechanics and production considerations of {primary_gap}."
+            "question": f"How do you design and optimize production systems leveraging {primary_gap} for high availability?",
+            "keyConcept": f"Core architecture, bottleneck identification, and optimization in {primary_gap}.",
+            "url": "https://github.com/donnemartin/system-design-primer",
+            "resourceTitle": "System Design Primer"
         },
         {
-            "topic": "System Design",
-            "question": f"How would you design a scalable system for {target_role}?",
-            "keyConcept": "API design, load balancing, model caching, and database indexing."
+            "topic": f"{target_role} Architecture",
+            "question": f"Walk through the architectural trade-offs you made in your projects when scaling data flow and persistence.",
+            "keyConcept": "System design trade-offs, caching layers, and database indexing.",
+            "url": "https://neetcode.io/practice",
+            "resourceTitle": "NeetCode Roadmap"
         }
     ]
 
     career_advice = [
-        f"Highlight hands-on projects featuring {primary_gap} prominently on your GitHub repository.",
-        f"Tailor your resume headline specifically for '{target_role}' positions.",
-        "Add architecture diagrams and live demo links to all portfolio projects."
+        f"Prominently feature your {primary_gap} implementations in your GitHub portfolio READMEs.",
+        f"Tailor your technical project bullet points to highlight {target_role} metrics and architecture decisions.",
+        f"Focus next on closing your {secondary_gap} gap to achieve full interview readiness."
     ]
 
-    return {
-        "durationWeeks": duration_weeks,
-        "roadmap": roadmap[:duration_weeks],
+    raw_result = {
+        "durationWeeks": len(roadmap),
+        "roadmap": roadmap,
         "courses": courses,
         "recommendedProjects": recommended_projects,
         "certifications": certifications,
@@ -258,12 +252,17 @@ def generate_personalized_recommendations(
         "careerAdvice": career_advice,
         "user_strengths": deterministic_strengths,
         "true_skill_gaps": gap_names,
+        "prioritized_gaps": prioritized_gaps,
     }
+    
+    return filter_and_validate_recommendations(
+        raw_result, evidence, prioritized_gaps, target_role, e5_courses=e5_ranked_courses
+    )
 
 def create_learning_path_record(
     user_id: str,
     target_role: str = "AI Engineer",
-    duration_weeks: int = 8,
+    duration_weeks: Optional[int] = None,
     unified_profile: Optional[Dict[str, Any]] = None,
     skill_gaps: Optional[List[Any]] = None,
     custom_roadmap: Optional[List[Dict[str, Any]]] = None,
@@ -285,7 +284,12 @@ def create_learning_path_record(
     doc = {
         "userId": user_id,
         "targetRole": target_role,
-        "durationWeeks": recs.get("durationWeeks", duration_weeks),
+        "durationWeeks": recs.get("durationWeeks", duration_weeks or 4),
+        "estimatedCompletionHours": recs.get("estimatedCompletionHours", 24),
+        "estimatedCompletionDays": recs.get("estimatedCompletionDays", 6),
+        "initialReadiness": recs.get("initialReadiness", 50),
+        "careerReadiness": recs.get("careerReadiness", 50),
+        "improvedScore": 0,
         "roadmap": recs.get("roadmap", []),
         "courses": recs.get("courses", []),
         "recommendedProjects": recs.get("recommendedProjects", []),
@@ -294,6 +298,7 @@ def create_learning_path_record(
         "careerAdvice": recs.get("careerAdvice", []),
         "user_strengths": recs.get("user_strengths", []),
         "true_skill_gaps": recs.get("true_skill_gaps", []),
+        "prioritized_gaps": recs.get("prioritized_gaps", {}),
         "createdAt": now,
         "updatedAt": now,
     }

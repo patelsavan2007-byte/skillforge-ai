@@ -529,6 +529,66 @@ SKILL_ALIASES: Dict[str, str] = {
 
     # ── Communication ──────────────────────────────────────────────────────
     "communication skills": "communication",
+
+    # ── Next.js ────────────────────────────────────────────────────────────
+    "next": "next.js",
+    "nextjs": "next.js",
+    "next js": "next.js",
+
+    # ── Prisma ─────────────────────────────────────────────────────────────
+    "prisma orm": "prisma",
+    "prisma client": "prisma",
+
+    # ── Mongoose ───────────────────────────────────────────────────────────
+    "mongoose odm": "mongoose",
+    "mongoose orm": "mongoose",
+
+    # ── Flask ──────────────────────────────────────────────────────────────
+    "flask api": "flask",
+    "python flask": "flask",
+
+    # ── Django ─────────────────────────────────────────────────────────────
+    "django rest framework": "django",
+    "django drf": "django",
+
+    # ── GraphQL ────────────────────────────────────────────────────────────
+    "graphql api": "graphql",
+    "graph ql": "graphql",
+
+    # ── Redis ──────────────────────────────────────────────────────────────
+    "redis cache": "redis",
+
+    # ── System Design ──────────────────────────────────────────────────────
+    "system-design": "system design",
+    "systems design": "system design",
+    "software architecture": "system design",
+
+    # ── Microservices ──────────────────────────────────────────────────────
+    "microservice": "microservices",
+    "micro services": "microservices",
+    "micro-services": "microservices",
+
+    # ── Full Stack ─────────────────────────────────────────────────────────
+    "full-stack": "full stack",
+    "fullstack": "full stack",
+    "full stack development": "full stack",
+
+    # ── Frontend/Backend Development ───────────────────────────────────────
+    "front-end": "frontend development",
+    "front end": "frontend development",
+    "front-end development": "frontend development",
+    "back-end": "backend development",
+    "back end": "backend development",
+    "back-end development": "backend development",
+
+    # ── AWS services ───────────────────────────────────────────────────────
+    "aws s3": "aws",
+    "aws ec2": "aws",
+    "aws lambda": "aws",
+
+    # ── Vercel / Netlify ───────────────────────────────────────────────────
+    "vercel deployment": "vercel",
+    "netlify deployment": "netlify",
 }
 
 

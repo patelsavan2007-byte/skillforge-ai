@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getAuthHeaders } from "./auth-store";
 
 export type UnifiedProfile = {
   name?: string;
@@ -39,27 +40,76 @@ export type CareerProfileData = {
   user_strengths?: string[];
   /** Deterministic difference: required skills − student skills */
   true_skill_gaps?: string[];
+  prioritized_gaps?: {
+    critical?: string[];
+    medium?: string[];
+    optional?: string[];
+  };
+};
+
+export type RoadmapSubTask = {
+  title: string;
+  duration?: string;
+  description?: string;
 };
 
 export type RoadmapWeek = {
   week: number;
   title: string;
+  skill?: string;
   skills?: string[];
-  courses?: { title: string; provider?: string; url?: string; duration?: string; difficulty?: string }[];
-  project?: { title: string; description?: string; skills?: string[] };
+  current_level?: string;
+  target_level?: string;
+  gap_level?: string;
+  estimated_hours?: number | string;
+  estimated_days?: number | string;
+  difficulty?: string;
+  objective?: string;
+  why_this_matters?: string;
+  why_this_week?: string;
+  tasks?: RoadmapSubTask[];
+  checkpoint?: string;
+  courses?: { title: string; provider?: string; url?: string; duration?: string; difficulty?: string; why_recommended?: string }[];
+  project?: { title: string; description?: string; skills?: string[]; url?: string };
+  status?: "not_started" | "in_progress" | "completed";
   completed?: boolean;
+  completed_at?: string;
+  actual_hours?: number;
 };
 
 export type LearningPathData = {
   id?: string | undefined;
   targetRole: string;
   durationWeeks?: number | undefined;
+  estimatedCompletionHours?: number | undefined;
+  estimatedCompletionDays?: number | undefined;
+  initialReadiness?: number | undefined;
+  careerReadiness?: number | undefined;
+  improvedScore?: number | undefined;
   roadmap?: RoadmapWeek[] | undefined;
-  courses?: { title: string; provider?: string; url?: string; duration?: string; difficulty?: string; skillAddressed?: string; similarity_score?: number }[] | undefined;
-  recommendedProjects?: { title: string; description?: string; technologies?: string[]; difficulty?: string }[] | undefined;
-  certifications?: { name: string; provider?: string; priority?: string }[] | undefined;
-  interviewPrep?: { topic: string; question: string; keyConcept?: string }[] | undefined;
+  courses?: { title: string; provider?: string; url?: string; duration?: string; difficulty?: string; skillAddressed?: string; similarity_score?: number; why_recommended?: string }[] | undefined;
+  recommendedProjects?: {
+    title: string;
+    description?: string;
+    technologies?: string[];
+    difficulty?: string;
+    skills_gained?: string[];
+    skills_targeted?: string[];
+    why_recommended?: string;
+    expected_resume_impact?: string;
+    suggested_stack?: string[];
+    url?: string;
+  }[] | undefined;
+  certifications?: { name: string; provider?: string; priority?: string; skill?: string; why_recommended?: string; url?: string }[] | undefined;
+  interviewPrep?: { topic: string; question: string; keyConcept?: string; url?: string; resourceTitle?: string }[] | undefined;
   careerAdvice?: string[] | undefined;
+  user_strengths?: string[] | undefined;
+  true_skill_gaps?: string[] | undefined;
+  prioritized_gaps?: {
+    critical?: string[];
+    medium?: string[];
+    optional?: string[];
+  } | undefined;
 };
 
 export type SkillProgressItem = {
@@ -74,6 +124,11 @@ export type ProgressData = {
   roadmapProgress: number;
   totalRoadmapItems: number;
   completedRoadmapItems: number;
+  initialReadiness?: number;
+  careerReadiness?: number;
+  improvedScore?: number;
+  completedGaps?: string[];
+  remainingGaps?: string[];
   skillGapItems?: string[];
   skillProgress?: SkillProgressItem[];
 };
@@ -127,6 +182,7 @@ export async function hydrateProfileFromBackend(): Promise<AnalysisPipelineResul
   if (hydrationRequest) return hydrationRequest;
 
   hydrationRequest = fetch(`${API_BASE_URL}/api/career-profiles/latest-analysis`, {
+    headers: getAuthHeaders(),
     credentials: "include",
   })
     .then(async (response) => {

@@ -1,0 +1,176 @@
+====================================================================================================
+SKILLFORGE AI - BACKEND ARCHITECTURE & RESUME/PORTFOLIO ANALYSIS PIPELINE DOCUMENTATION
+====================================================================================================
+Date: August 13, 2026
+Project: SkillForge AI
+File Generated: backend_resume_portfolio_analysis.txt
+
+----------------------------------------------------------------------------------------------------
+1. OVERVIEW & ARCHITECTURE OF THE BACKEND PIPELINE
+----------------------------------------------------------------------------------------------------
+SkillForge AI uses a FastAPI backend (Python) backed by MongoDB Atlas for data persistence, Google 
+Gemini 2.5 Flash for AI analysis, PyMuPDF / python-docx for document text extraction, BeautifulSoup / 
+httpx for web scraping, and Hugging Face (oksomu/resume-ner) as an offline Named Entity Recognition 
+fallback.
+
+The core flow allows students to submit:
+  1. Resume file (PDF, DOCX, or TXT)
+  2. Portfolio link / GitHub profile URL
+  3. Target Role (e.g. "AI/ML Engineer", "Full Stack Developer", "Data Scientist")
+
+The backend processes these inputs to extract structured candidate profiles, merge multi-source 
+data, run skill gap analysis against target role requirements, and generate an 8-week 
+personalized learning path & career roadmap.
+
+
+----------------------------------------------------------------------------------------------------
+2. STEP-BY-STEP WORKFLOW: HOW RESUME UPLOAD & PORTFOLIO LINK ANALYSIS WORKS
+----------------------------------------------------------------------------------------------------
+
+[STEP 1: API ROUTING & ENTRY POINT]
+- Main Endpoint: POST /api/career-profiles/analyze (app/routes/career_profiles.py)
+- Input: Form data containing optional `file` (UploadFile), optional `portfolio_url` (str), and 
+  `target_role` (str, default "AI/ML Engineer").
+- Authentication: Enforced via `get_current_user_id` FastAPI dependency (Session cookie / JWT).
+
+[STEP 2: RESUME PROCESSING FLOW]
+When a resume file is uploaded:
+1. Binary Extraction (app/services/resume_parser.py):
+   - PDF (.pdf): Processed using PyMuPDF (`fitz`). Extracts raw text page by page. If text is empty 
+     (scanned/image PDF), raises 400 error indicating OCR requirement.
+   - Word (.docx): Extracted using `python-docx`. Iterates paragraphs and table rows (`|` separated).
+   - Text (.txt): Decoded via UTF-8 (fallback to Latin-1).
+   - Legacy (.doc): Formally rejected with 400 error asking candidate to convert to .docx/.pdf.
+
+2. AI Extraction via Gemini 2.5 Flash (app/services/gemini_service.py -> analyze_resume_with_gemini):
+   - If `GEMINI_API_KEY` is configured, raw text (up to 8,000 characters) is sent to Gemini with 
+     system instructions enforcing JSON output containing: name, email, phone, location, education, 
+     experience, skills, projects, certifications, technologies, achievements.
+
+3. Offline Fallback via Hugging Face NER + Rules (app/services/resume_ner.py & resume_extractor.py):
+   - If Gemini is absent or fails, `ResumeNERService` preprocesses text (normalizes bullets, line 
+     breaks), chunks text into paragraph slices (<300 words), and runs Hugging Face token-classification 
+     model `oksomu/resume-ner`.
+   - Filters entities with confidence score >= 0.60 for native labels (NAME, EMAIL, PHONE, LOCATION, 
+     COMPANY, TITLE, DEGREE, FIELD, INSTITUTION, SKILL, CERT, LANGUAGE).
+   - `build_structured_resume` uses regex fallbacks for contact info, parses academic scores (SGPA/CGPA/GPA), 
+     parses date ranges, and extracts project sections via heading detection.
+
+4. Database Persistence (app/services/resume_service.py):
+   - Inserts record into MongoDB `resumes` collection with userId, fileName, profile dict, uploadedAt.
+
+[STEP 3: PORTFOLIO LINK ANALYSIS FLOW]
+When a portfolio URL is provided:
+1. URL Normalization & Web Scraping (app/services/portfolio_service.py -> analyze_portfolio_url):
+   - Ensures protocol prefix (`https://`).
+   - Uses `httpx.AsyncClient` (6.0s timeout, custom User-Agent) to download web page HTML.
+   - Uses `BeautifulSoup` to strip non-content tags (`<script>`, `<style>`, `<nav>`, `<footer>`, 
+     `<noscript>`, `<svg>`).
+   - Extracts page `<title>`, heading elements (`<h1>`, `<h2>`, `<h3>`), and content paragraphs.
+
+2. AI Extraction via Gemini 2.5 Flash (app/services/gemini_service.py -> analyze_portfolio_with_gemini):
+   - Sends page snippet (up to 8,000 chars) to Gemini to parse developer bio, skills, featured 
+     projects (names, descriptions, tech stacks, links), technologies, certifications, and experience.
+
+3. Heuristic Fallback:
+   - If Gemini is unavailable, searches page text against `COMMON_SKILL_KEYWORDS` (Python, React, 
+     FastAPI, Docker, SQL, PyTorch, etc.).
+   - Extracts headings containing project keywords ("project", "app", "system", "bot", etc.) to build 
+     project entries.
+
+4. Database Persistence (app/services/portfolio_service.py):
+   - Inserts record into MongoDB `portfolios` collection with userId, url, profile dict, analyzedAt.
+
+[STEP 4: UNIFIED PROFILE MERGING]
+Endpoint calls `merge_student_profiles` (app/services/profile_merge_service.py):
+1. Handles 3 configurations: Resume-only, Portfolio-only, or Resume + Portfolio.
+2. If both sources exist:
+   - Invokes `merge_profiles_with_gemini` to intelligently unify profiles: deduplicates skills, 
+     preserves complete resume experience/education history, and merges project descriptions while 
+     retaining GitHub/live URLs from portfolio.
+3. Rule-Based Fallback:
+   - Combines skills and tech arrays with case-insensitive string normalization.
+   - Merges project objects: portfolio projects take priority for links, matches resume projects 
+     by name, and tags source metadata (`"resume"`, `"portfolio"`, or `"both"`).
+
+[STEP 5: CAREER GAP ANALYSIS & ROADMAP GENERATION]
+1. Gap Analysis (app/services/career_service.py):
+   - Compares unified profile skills against `REQUIRED_SKILLS_BY_ROLE` mapping for target role.
+   - Evaluates match ratio (35% to 95% readiness score).
+   - Calls `analyze_career_gap_with_gemini` to categorize strong skills, developing skills, specific 
+     skill gaps (current vs required levels), missing technologies, and missing project experience.
+   - Saves record into MongoDB `career_profiles` collection.
+
+2. Learning Path & Recommendations (app/services/learning_service.py):
+   - Calls `generate_recommendations_with_gemini` to construct a personalized 8-week roadmap tailored 
+     specifically to the student's identified skill gaps.
+   - Generates weekly module titles, target skills, recommended courses (Coursera, Udemy), capstone 
+     projects, priority certifications, interview prep questions, and career advice.
+   - Saves record into MongoDB `learning_paths` collection.
+
+
+----------------------------------------------------------------------------------------------------
+3. CRITICAL AREAS FOR IMPROVEMENT & RECOMMENDATIONS
+----------------------------------------------------------------------------------------------------
+
+[1. PORTFOLIO SCRAPING & DYNAMIC JS RENDER LIMITATIONS]
+- Problem: `httpx` + `BeautifulSoup` only fetches static HTML. Modern developer portfolios built as 
+  Single Page Applications (React, Next.js, Vue) render content dynamically via client-side JavaScript. 
+  Scraping static HTML results in empty content or unrendered JS boilerplate.
+- Improvement Needed:
+  a. Integrate Headless Browser rendering (Playwright or Puppeteer) for client-rendered portfolios.
+  b. Implement dedicated GitHub API integration (`api.github.com/users/{username}/repos`) for GitHub 
+     URLs to fetch real repo stats, pinned projects, primary languages, and README content.
+
+[2. SECURITY & SSRF (SERVER-SIDE REQUEST FORGERY) VULNERABILITY]
+- Problem: `analyze_portfolio_url` accepts any user-supplied URL and makes an HTTP request from the 
+  server. An attacker could pass `http://169.254.169.254` (cloud metadata service) or `http://localhost:8000` 
+  to probe internal infrastructure.
+- Improvement Needed:
+  a. Enforce URL validation to block private/reserved IP ranges (127.0.0.1, 10.x.x.x, 169.254.x.x, 192.168.x.x).
+  b. Restrict outbound requests to standard HTTP/HTTPS ports (80/443).
+  c. Add strict MIME-type and magic byte checking for file uploads to prevent non-resume binaries.
+
+[3. OCR FOR SCANNED / IMAGE-BASED RESUMES]
+- Problem: `extract_text_from_pdf` in PyMuPDF throws an error if a PDF has scanned images without text layer.
+- Improvement Needed:
+  a. Add an OCR fallback using `pdf2image` + `pytesseract` (Tesseract OCR) to read scanned resume PDFs 
+     and images (.png, .jpg).
+
+[4. CPU-INTENSIVE HUGGING FACE NER BLOCKING FASTAPI EVENT LOOP]
+- Problem: `oksomu/resume-ner` model inference runs synchronously on the main thread inside 
+  FastAPI's async route. High concurrency or long resumes can freeze the event loop for other users.
+- Improvement Needed:
+  a. Offload CPU inference using `asyncio.to_thread(ner_service.extract_entities, text)` or move 
+     heavy AI parsing to a background worker queue (Celery, Redis Queue, or Arq).
+
+[5. ASYNC DATABASE I/O (PYMONGO VS MOTOR)]
+- Problem: FastAPI is an asynchronous framework, but MongoDB calls use synchronous `PyMongo` 
+  (`insert_one`, `find_one`). This blocks worker threads during database network latency.
+- Improvement Needed:
+  a. Migrate database operations to `Motor` (official async MongoDB driver for Python/FastAPI) 
+     or wrap PyMongo calls in `asyncio.to_thread`.
+
+[6. API RATE LIMITING & LLM RESILIENCE]
+- Problem: `/api/career-profiles/analyze` has no rate limits, exposing the server to API key quota 
+  exhaustion and high Google Gemini API costs. Gemini calls lack automatic retry logic with backoff.
+- Improvement Needed:
+  a. Add rate limiting middleware (e.g., `slowapi` or Redis leaky-bucket) per user/IP.
+  b. Implement exponential backoff retries (e.g. `tenacity` library) for Gemini API calls to handle 
+     transient 429/503 errors.
+
+[7. AI JSON SCHEMA ENFORCEMENT]
+- Problem: `_clean_json_response` uses regex `{.*}` to extract JSON from Gemini text responses. If Gemini 
+  outputs malformed JSON or markdown code formatting errors, parsing fails.
+- Improvement Needed:
+  a. Leverage Gemini's native `response_schema` parameter with Pydantic models to guarantee strict 
+     JSON responses directly from the API.
+
+[8. ACCURACY OF HEURISTIC FALLBACKS]
+- Problem: When portfolio scraping yields low text content, the heuristic fallback inserts hardcoded 
+  skills (`["React", "JavaScript", "Python", "FastAPI", "MongoDB"]`). This introduces false skills into 
+  a candidate's profile.
+- Improvement Needed:
+  a. Return an empty skill list with a low-confidence banner instead of injecting arbitrary dummy skills.
+
+====================================================================================================

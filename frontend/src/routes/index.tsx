@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { ROLE_DESCRIPTIONS, TARGET_ROLES, type TargetRole } from "@/lib/mock-data";
 import { clearProfile, formatBytes, saveProfile } from "@/lib/profile-store";
+import { getSession } from "@/lib/auth-store";
 
 import { RequireAuth } from "@/components/auth/require-auth";
 
@@ -116,8 +117,15 @@ function Index() {
       }
       formData.append("target_role", role);
 
+      const headers: Record<string, string> = {};
+      const session = getSession();
+      if (session?.id) {
+        headers["X-User-ID"] = session.id;
+      }
+
       const res = await fetch(`${API_BASE_URL}/api/career-profiles/analyze`, {
         method: "POST",
+        headers,
         body: formData,
         credentials: "include",
       });
