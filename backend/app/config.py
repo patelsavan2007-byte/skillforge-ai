@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     RESUME_NER_MODEL: str = "oksomu/resume-ner"
     RESUME_NER_MIN_CONFIDENCE: float = 0.60
     GEMINI_API_KEY: str = ""
+    # Stage 3 only: local persistent semantic-course index.  It is separate
+    # from MongoDB, which remains the Stage 5 system of record.
+    CHROMADB_DIR: str = os.path.join(BACKEND_DIR, "app", "data", "chroma_db")
+    CHROMA_COLLECTION_NAME: str = "skillforge_courses"
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,

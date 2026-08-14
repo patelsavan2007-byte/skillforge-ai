@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import numpy as np
+from app.services.chromadb_service import query_courses
 
 logger = logging.getLogger("skillforge.embedding_service")
 
@@ -33,6 +34,27 @@ _COURSE_CATALOG: List[Dict[str, Any]] = []
 _COURSE_EMBEDDINGS: Optional[np.ndarray] = None
 _IS_INITIALIZED = False
 _INITIALIZATION_FAILED = False
+
+
+def get_e5_model():
+    """Load E5 once for query encoding; ingestion owns corpus encoding."""
+    global _E5_MODEL, _INITIALIZATION_FAILED
+    if _E5_MODEL is not None:
+        return _E5_MODEL
+    if _INITIALIZATION_FAILED:
+        return None
+    try:
+        from sentence_transformers import SentenceTransformer
+        logger.info("Initializing intfloat/e5-base-v2 for query encoding...")
+        # The model is provisioned explicitly by the offline ingestion setup.
+        # Runtime must use that local cache and never block API requests on a
+        # Hugging Face availability check.
+        _E5_MODEL = SentenceTransformer("intfloat/e5-base-v2", local_files_only=True)
+        return _E5_MODEL
+    except Exception as exc:
+        logger.error("Failed to initialize intfloat/e5-base-v2: %s", exc)
+        _INITIALIZATION_FAILED = True
+        return None
 
 
 def _get_course_catalog_path() -> Path:
@@ -74,10 +96,9 @@ def init_e5_service() -> bool:
         return False
 
     try:
-        from sentence_transformers import SentenceTransformer
-
-        logger.info("Initializing intfloat/e5-base-v2 model for semantic course retrieval...")
-        _E5_MODEL = SentenceTransformer("intfloat/e5-base-v2")
+        _E5_MODEL = get_e5_model()
+        if _E5_MODEL is None:
+            return False
 
         # Load course dataset
         catalog_path = _get_course_catalog_path()
@@ -110,6 +131,42 @@ def init_e5_service() -> bool:
         logger.error(f"Failed to initialize intfloat/e5-base-v2 model or course catalog: {e}")
         _INITIALIZATION_FAILED = True
         return False
+
+
+def _map_chroma_course(course: Dict[str, Any], skill_gaps: List[str]) -> Dict[str, Any]:
+    raw_skills = course.get("skills", "[]")
+    try:
+        skills = json.loads(raw_skills) if isinstance(raw_skills, str) else raw_skills
+    except json.JSONDecodeError:
+        skills = []
+    return {
+        "title": course.get("title", ""),
+        "provider": course.get("provider", ""),
+        "url": course.get("url", ""),
+        "duration": course.get("duration", ""),
+        "difficulty": course.get("difficulty", "All Levels"),
+        "skillAddressed": (skills or skill_gaps[:1] or ["General"])[0],
+        "similarity_score": float(course.get("similarity_score", 0.0)),
+        "description": course.get("description", ""),
+        "skills": skills if isinstance(skills, list) else [],
+    }
+
+
+def _rerank_chroma_courses(courses: List[Dict[str, Any]], skill_gaps: List[str], top_k: int) -> List[Dict[str, Any]]:
+    """Prefer results explicitly tagged/titled for deterministic gaps over broad prose matches."""
+    gaps = {gap.casefold() for gap in skill_gaps}
+
+    def relevance(course: Dict[str, Any]) -> tuple[int, int, float]:
+        try:
+            skills = json.loads(course.get("skills", "[]"))
+        except (TypeError, json.JSONDecodeError):
+            skills = []
+        tagged_matches = sum(str(skill).casefold() in gaps for skill in skills)
+        title = str(course.get("title", "")).casefold()
+        title_matches = sum(gap in title for gap in gaps)
+        return title_matches, tagged_matches, float(course.get("similarity_score", 0.0))
+
+    return sorted(courses, key=relevance, reverse=True)[:top_k]
 
 
 def compute_cosine_similarity(query_vec: np.ndarray, doc_vecs: np.ndarray) -> np.ndarray:
@@ -150,18 +207,30 @@ def rank_courses_with_e5(
         logger.info("No true_skill_gaps provided for E5 course ranking.")
         return None
 
-    if not init_e5_service():
-        logger.warning("E5 embedding service unavailable. Falling back to default course logic.")
-        return None
-
     try:
         # Construct E5 query text with required "query: " prefix
         skills_str = ", ".join(true_skill_gaps)
         query_text = f"query: {skills_str}"
 
         # Generate query embedding
-        query_embedding = _E5_MODEL.encode(query_text, normalize_embeddings=True)
+        model = get_e5_model()
+        if model is None:
+            return _fallback_catalog_courses(true_skill_gaps, top_k)
+        query_embedding = model.encode(query_text, normalize_embeddings=True)
         query_vec = np.array(query_embedding, dtype=np.float32)
+
+        # Primary path: persistent 1,041-course Chroma index.  Runtime does
+        # not build embeddings; an offline ingestion command owns that work.
+        # Fetch a small candidate window, then deterministically prefer exact
+        # Stage-2 gap tags/titles over an otherwise broad semantic result.
+        chroma_courses = query_courses(query_vec.tolist(), top_k=max(25, top_k * 10))
+        if chroma_courses:
+            ranked_courses = _rerank_chroma_courses(chroma_courses, true_skill_gaps, top_k)
+            return [_map_chroma_course(course, true_skill_gaps) for course in ranked_courses]
+
+        # Backward-compatible fallback: the small verified core catalog only.
+        if not init_e5_service():
+            return _fallback_catalog_courses(true_skill_gaps, top_k)
 
         # Compute cosine similarity against precomputed course passage embeddings
         scores = compute_cosine_similarity(query_vec, _COURSE_EMBEDDINGS)
@@ -196,4 +265,26 @@ def rank_courses_with_e5(
 
     except Exception as e:
         logger.error(f"Error during E5 course ranking execution: {e}")
+        return _fallback_catalog_courses(true_skill_gaps, top_k)
+
+
+def _fallback_catalog_courses(true_skill_gaps: List[str], top_k: int) -> Optional[List[Dict[str, Any]]]:
+    """Deterministic, URL-safe fallback when E5 or ChromaDB is unavailable."""
+    try:
+        with open(_get_course_catalog_path(), "r", encoding="utf-8") as source:
+            catalog = json.load(source)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.error("Course catalog fallback unavailable: %s", exc)
         return None
+    gap_keys = [skill.casefold() for skill in true_skill_gaps]
+    ranked = []
+    for course in catalog:
+        haystack = " ".join([course.get("title", ""), course.get("description", "")] + course.get("skills", [])).casefold()
+        score = sum(gap in haystack for gap in gap_keys)
+        if score:
+            ranked.append((score, course))
+    ranked.sort(key=lambda item: (-item[0], str(item[1].get("title", ""))))
+    return [
+        {**course, "provider": course.get("platform", ""), "similarity_score": float(score)}
+        for score, course in ranked[:max(3, top_k)]
+    ] or None

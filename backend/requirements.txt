@@ -19,3 +19,4 @@ numpy
 transformers>=4.46,<6
 sentence-transformers>=3.3
 torch>=2.6
+chromadb>=1.5,<2
