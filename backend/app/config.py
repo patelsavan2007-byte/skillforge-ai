@@ -7,7 +7,8 @@ ENV_FILE_PATH = os.path.join(BACKEND_DIR, ".env")
 class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
-    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/auth/google/callback"
+    GOOGLE_REDIRECT_URI: str = ""
+    BACKEND_URL: str = "http://localhost:8000"
     FRONTEND_URL: str = "http://localhost:5173"
     ALLOWED_ORIGINS: str = ""
     SESSION_SECRET: str = "skillforge_ai_super_secret_session_key_2026_x89q"
@@ -40,8 +41,16 @@ class Settings(BaseSettings):
     )
 
     @property
+    def effective_google_redirect_uri(self) -> str:
+        if self.GOOGLE_REDIRECT_URI:
+            return self.GOOGLE_REDIRECT_URI
+        backend = self.BACKEND_URL.rstrip("/")
+        return f"{backend}/api/auth/google/callback"
+
+    @property
     def cors_origins(self) -> list[str]:
         origins = {
+            "https://skillforge-ai-opal.vercel.app",
             "http://localhost:5173", "http://127.0.0.1:5173",
             "http://localhost:3000", "http://127.0.0.1:3000",
             "http://localhost:3173", "http://127.0.0.1:3173",
@@ -72,7 +81,8 @@ def _log_config_status():
     print(f"[Config] .env file exists: {os.path.exists(ENV_FILE_PATH)}")
     print(f"[Config] GOOGLE_CLIENT_ID loaded: {'YES (' + settings.GOOGLE_CLIENT_ID[:12] + '...)' if settings.GOOGLE_CLIENT_ID else 'NO (empty)'}")
     print(f"[Config] GOOGLE_CLIENT_SECRET loaded: {'YES' if settings.GOOGLE_CLIENT_SECRET else 'NO (empty)'}")
-    print(f"[Config] GOOGLE_REDIRECT_URI: {settings.GOOGLE_REDIRECT_URI}")
+    print(f"[Config] BACKEND_URL: {settings.BACKEND_URL}")
+    print(f"[Config] GOOGLE_REDIRECT_URI: {settings.effective_google_redirect_uri}")
     print(f"[Config] FRONTEND_URL: {settings.FRONTEND_URL}")
     print(f"[Config] ENVIRONMENT: {settings.ENVIRONMENT}")
     print(f"[Config] MONGODB_DATABASE: {settings.MONGODB_DATABASE}")

@@ -16,7 +16,7 @@ def generate_oauth_state() -> str:
 def get_google_auth_url(state: str) -> str:
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
-        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "redirect_uri": settings.effective_google_redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,
@@ -30,7 +30,7 @@ async def exchange_code_for_token(code: str) -> str:
         "client_secret": settings.GOOGLE_CLIENT_SECRET,
         "code": code,
         "grant_type": "authorization_code",
-        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "redirect_uri": settings.effective_google_redirect_uri,
     }
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(GOOGLE_TOKEN_URL, data=data)

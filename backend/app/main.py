@@ -7,13 +7,19 @@ import re
 from app.config import settings
 from app.database.mongodb import connect_to_mongodb, close_mongodb_connection
 
-from app.routes.auth import router as auth_router
+from app.routes.auth import router as auth_router, google_login, google_callback
 from app.routes.users import router as users_router
 from app.routes.resumes import router as resumes_router
 from app.routes.portfolios import router as portfolios_router
 from app.routes.career_profiles import router as career_profiles_router
 from app.routes.learning_paths import router as learning_paths_router
 from app.routes.progress import router as progress_router
+from fastapi import APIRouter
+
+# Alias router for Google OAuth when configured without /api prefix
+auth_alias_router = APIRouter(prefix="/auth", tags=["auth-alias"])
+auth_alias_router.add_api_route("/google/login", google_login, methods=["GET"])
+auth_alias_router.add_api_route("/google/callback", google_callback, methods=["GET"])
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,17 +36,6 @@ app = FastAPI(
     description="Backend service with PyMongo MongoDB Atlas integration",
     version="2.0.0",
     lifespan=lifespan,
-)
-
-# CORS middleware configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app|.*\.onrender\.com)(:\d+)?$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
 )
 
 # Session middleware configuration
@@ -61,8 +56,20 @@ async def normalize_path_middleware(request: Request, call_next):
         request.scope["path"] = re.sub(r"/+", "/", request.scope["path"])
     return await call_next(request)
 
+# CORS middleware MUST be added outermost (last in Starlette) so preflight OPTIONS and error responses return CORS headers cleanly
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app|.*\.onrender\.com)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
 # Register routers
 app.include_router(auth_router)
+app.include_router(auth_alias_router)
 app.include_router(users_router)
 app.include_router(resumes_router)
 app.include_router(resumes_router, prefix="/api/resume", tags=["resume-alias"])
