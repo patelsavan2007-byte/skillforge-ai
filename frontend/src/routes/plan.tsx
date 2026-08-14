@@ -75,7 +75,7 @@ function PlanPage() {
             Your personalized career plan will appear here once you upload a resume or portfolio and run your career analysis.
           </p>
           <Button asChild size="lg" className="glow mt-8 bg-gradient-accent text-primary-foreground">
-            <Link to="/">Start your career analysis <span aria-hidden>→</span></Link>
+            <Link to="/upload">Start your career analysis <span aria-hidden>→</span></Link>
           </Button>
         </section>
       </main>
@@ -98,7 +98,7 @@ function PlanPage() {
             Your career analysis completed but no learning path was returned. Please re-run the analysis.
           </p>
           <Button asChild size="lg" className="glow mt-8 bg-gradient-accent text-primary-foreground">
-            <Link to="/">Re-run analysis <span aria-hidden>→</span></Link>
+            <Link to="/upload">Re-run analysis <span aria-hidden>→</span></Link>
           </Button>
         </section>
       </main>

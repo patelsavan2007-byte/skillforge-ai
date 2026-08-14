@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { LoginPageContent } from "@/components/auth/login-page-content";
 
-export const Route = createFileRoute("/login")({
+export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
       { title: "Sign In — SkillForge AI" },

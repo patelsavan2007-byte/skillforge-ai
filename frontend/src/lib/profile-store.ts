@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getAuthHeaders } from "./auth-store";
+import { getAuthHeaders, getSession } from "./auth-store";
 
 export type UnifiedProfile = {
   name?: string;
@@ -134,6 +134,8 @@ export type ProgressData = {
 };
 
 export type AnalysisPipelineResult = {
+  userId?: string | undefined;
+  sessionId?: string | undefined;
   resumeId?: string | undefined;
   portfolioId?: string | undefined;
   resumeName?: string | undefined;
@@ -147,29 +149,63 @@ export type AnalysisPipelineResult = {
   progress?: ProgressData | undefined;
 };
 
-
-const KEY = "skillforge-profile";
 const API_BASE_URL = import.meta.env["VITE_API_URL"] || "http://localhost:8000";
 let hydrationRequest: Promise<AnalysisPipelineResult | null> | null = null;
 
+function getProfileStorageKey(userId?: string, sessionId?: string): string {
+  if (!userId || !sessionId) return "skillforge-profile-unauthenticated";
+  return `skillforge_profile_${userId}_${sessionId}`;
+}
+
 export function saveProfile(profile: AnalysisPipelineResult) {
   if (typeof window === "undefined") return;
-  sessionStorage.setItem(KEY, JSON.stringify(profile));
-  window.dispatchEvent(new Event("skillforge-profile-update"));
+  try {
+    const user = getSession();
+    const userId = profile.userId || user?.id;
+    const sessionId = profile.sessionId || user?.sessionId;
+    const fullProfile: AnalysisPipelineResult = {
+      ...profile,
+      userId,
+      sessionId,
+    };
+    const key = getProfileStorageKey(userId, sessionId);
+    sessionStorage.setItem(key, JSON.stringify(fullProfile));
+    sessionStorage.removeItem("skillforge-profile");
+    window.dispatchEvent(new Event("skillforge-profile-update"));
+  } catch (err) {
+    console.warn("Error saving profile to sessionStorage:", err);
+  }
 }
 
 export function clearProfile() {
   if (typeof window === "undefined") return;
-  sessionStorage.removeItem(KEY);
-  window.dispatchEvent(new Event("skillforge-profile-update"));
+  try {
+    const user = getSession();
+    if (user?.id && user?.sessionId) {
+      sessionStorage.removeItem(getProfileStorageKey(user.id, user.sessionId));
+    }
+    sessionStorage.removeItem("skillforge-profile");
+    window.dispatchEvent(new Event("skillforge-profile-update"));
+  } catch (err) {
+    console.warn("Error clearing profile from sessionStorage:", err);
+  }
 }
 
-function readStoredProfile(): AnalysisPipelineResult | null {
+export function readStoredProfile(): AnalysisPipelineResult | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as AnalysisPipelineResult) : null;
-  } catch {
+    const user = getSession();
+    if (!user?.id || !user?.sessionId) return null;
+    const key = getProfileStorageKey(user.id, user.sessionId);
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AnalysisPipelineResult;
+    if (parsed && parsed.userId === user.id && parsed.sessionId === user.sessionId) {
+      return parsed;
+    }
+    return null;
+  } catch (err) {
+    console.warn("Error reading stored profile from sessionStorage:", err);
     return null;
   }
 }
@@ -177,64 +213,77 @@ function readStoredProfile(): AnalysisPipelineResult | null {
 /** Restore the latest persisted analysis when the browser session has no cached copy. */
 export async function hydrateProfileFromBackend(): Promise<AnalysisPipelineResult | null> {
   if (typeof window === "undefined") return null;
-  const stored = readStoredProfile();
-  if (stored) return stored;
-  if (hydrationRequest) return hydrationRequest;
+  try {
+    const user = getSession();
+    if (!user?.id || !user?.sessionId) return null;
+    const stored = readStoredProfile();
+    if (stored) return stored;
+    if (hydrationRequest) return hydrationRequest;
 
-  hydrationRequest = fetch(`${API_BASE_URL}/api/career-profiles/latest-analysis`, {
-    headers: getAuthHeaders(),
-    credentials: "include",
-  })
-    .then(async (response) => {
-      if (response.status === 401 || !response.ok) return null;
-      const payload = await response.json();
-      if (!payload.success || !payload.data) return null;
-      const result = payload.data as AnalysisPipelineResult;
-      saveProfile(result);
-      return result;
+    hydrationRequest = fetch(`${API_BASE_URL}/api/career-profiles/latest-analysis`, {
+      headers: getAuthHeaders(),
+      credentials: "include",
     })
-    .catch(() => null)
-    .finally(() => {
-      hydrationRequest = null;
-    });
-  return hydrationRequest;
+      .then(async (response) => {
+        if (response.status === 401 || !response.ok) return null;
+        const payload = await response.json();
+        if (!payload.success || !payload.data) return null;
+        const result = payload.data as AnalysisPipelineResult;
+        result.userId = user.id;
+        result.sessionId = user.sessionId;
+        saveProfile(result);
+        return result;
+      })
+      .catch(() => null)
+      .finally(() => {
+        hydrationRequest = null;
+      });
+    return hydrationRequest;
+  } catch {
+    return null;
+  }
 }
 
 /** Optimistically synchronize a roadmap checkbox with session state. */
 export function updateRoadmapCheckpoint(week: number, completed: boolean) {
-  const profile = readStoredProfile();
-  if (!profile?.learningPath?.roadmap) return;
-  saveProfile({
-    ...profile,
-    learningPath: {
-      ...profile.learningPath,
-      roadmap: profile.learningPath.roadmap.map((item) =>
-        item.week === week ? { ...item, completed } : item,
-      ),
-    },
-  });
+  try {
+    const profile = readStoredProfile();
+    if (!profile?.learningPath?.roadmap) return;
+    saveProfile({
+      ...profile,
+      learningPath: {
+        ...profile.learningPath,
+        roadmap: profile.learningPath.roadmap.map((item) =>
+          item.week === week ? { ...item, completed } : item,
+        ),
+      },
+    });
+  } catch (err) {
+    console.warn("Error updating roadmap checkpoint:", err);
+  }
 }
 
 /** Apply the server's authoritative checkpoint and deterministic progress state. */
 export function updateProgressState(progress: ProgressData, roadmap?: RoadmapWeek[]) {
-  const profile = readStoredProfile();
-  if (!profile) return;
-  saveProfile({
-    ...profile,
-    progress,
-    learningPath: profile.learningPath
-      ? { ...profile.learningPath, roadmap: roadmap ?? profile.learningPath.roadmap }
-      : profile.learningPath,
-  });
+  try {
+    const profile = readStoredProfile();
+    if (!profile) return;
+    saveProfile({
+      ...profile,
+      progress,
+      learningPath: profile.learningPath
+        ? { ...profile.learningPath, roadmap: roadmap ?? profile.learningPath.roadmap }
+        : profile.learningPath,
+    });
+  } catch (err) {
+    console.warn("Error updating progress state:", err);
+  }
 }
 
 export function useProfile(): AnalysisPipelineResult | null {
   const [profile, setProfile] = useState<AnalysisPipelineResult | null>(() => {
-    if (typeof window === "undefined") return null;
-    const raw = sessionStorage.getItem(KEY);
-    if (!raw) return null;
     try {
-      return JSON.parse(raw) as AnalysisPipelineResult;
+      return readStoredProfile();
     } catch {
       return null;
     }
@@ -242,23 +291,23 @@ export function useProfile(): AnalysisPipelineResult | null {
 
   useEffect(() => {
     const sync = () => {
-      const raw = sessionStorage.getItem(KEY);
-      if (raw) {
-        try {
-          setProfile(JSON.parse(raw) as AnalysisPipelineResult);
-        } catch {
-          setProfile(null);
-        }
-      } else setProfile(null);
+      try {
+        setProfile(readStoredProfile());
+      } catch {
+        setProfile(null);
+      }
     };
 
     window.addEventListener("skillforge-profile-update", sync);
     window.addEventListener("storage", sync);
-    if (!readStoredProfile()) {
-      void hydrateProfileFromBackend().then((hydrated) => {
-        if (hydrated) setProfile(hydrated);
-      });
+
+    try {
+      const initial = readStoredProfile();
+      setProfile(initial);
+    } catch {
+      setProfile(null);
     }
+
     return () => {
       window.removeEventListener("skillforge-profile-update", sync);
       window.removeEventListener("storage", sync);

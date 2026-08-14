@@ -53,7 +53,7 @@ function AuthBar() {
         Skill<span className="text-primary">Forge</span> AI
       </Link>
       <nav className="flex items-center gap-2 sm:gap-3">
-        <Link to="/" className="hidden rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface hover:text-foreground sm:inline">New analysis</Link>
+        <Link to="/upload" className="hidden rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface hover:text-foreground sm:inline">New analysis</Link>
         <Link to="/analysis" className="hidden rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface hover:text-foreground sm:inline">Analysis</Link>
         <button type="button" aria-label="Toggle light and dark theme" onClick={toggleTheme} className="grid size-8 place-items-center rounded-full border border-border bg-surface text-muted-foreground transition-colors hover:text-foreground">
           {light ? <Moon className="size-3.5" /> : <Sun className="size-3.5" />}

@@ -89,7 +89,7 @@ function AnalysisPage() {
           <span className="inline-flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary"><FileText className="size-7" /></span>
           <h1 className="mt-6 text-3xl font-bold">Start with your career profile</h1>
           <p className="mx-auto mt-3 max-w-lg text-muted-foreground">Upload a resume or add a public portfolio link first. Once we have your information, your personalized analysis will appear here.</p>
-          <Button asChild size="lg" className="glow mt-8 bg-gradient-accent text-primary-foreground"><Link to="/">Upload &amp; start analysis <ArrowRight className="size-4" /></Link></Button>
+          <Button asChild size="lg" className="glow mt-8 bg-gradient-accent text-primary-foreground"><Link to="/upload">Upload &amp; start analysis <ArrowRight className="size-4" /></Link></Button>
         </section>
       </main>
     );
@@ -159,7 +159,7 @@ function AnalysisPage() {
   return (
     <main className="hero-glow min-h-screen">
       <div className="mx-auto max-w-6xl px-5 py-12">
-        <Link to="/" className="text-sm text-muted-foreground hover:text-primary">
+        <Link to="/upload" className="text-sm text-muted-foreground hover:text-primary">
           ← Back to resume & portfolio input
         </Link>
 

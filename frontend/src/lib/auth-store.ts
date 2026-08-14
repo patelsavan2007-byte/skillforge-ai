@@ -6,12 +6,20 @@ export type AuthUser = {
   email: string;
   profile_picture?: string;
   provider?: "password" | "google";
+  sessionId?: string;
 };
 
 const API_BASE_URL = import.meta.env["VITE_API_URL"] || "http://localhost:8000";
 const KEY = "skillforge-auth";
 
 const listeners = new Set<() => void>();
+
+function generateSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
 
 function emit() {
   listeners.forEach((l) => l());
@@ -60,12 +68,19 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
     if (res.ok) {
       const data = await res.json();
       if (data.authenticated && data.user) {
+        // Keep existing stable sessionId if same user, otherwise generate a new session ID
+        const stableSessionId =
+          local?.id === data.user.id && local?.sessionId
+            ? local.sessionId
+            : generateSessionId();
+
         const user: AuthUser = {
           id: data.user.id,
           name: data.user.name,
           email: data.user.email,
           profile_picture: data.user.profile_picture || "",
           provider: data.user.provider || "google",
+          sessionId: stableSessionId,
         };
         setSession(user);
         return user;
@@ -100,6 +115,7 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
     email: data.user.email,
     profile_picture: data.user.profile_picture || "",
     provider: data.user.provider || "password",
+    sessionId: generateSessionId(),
   };
   setSession(user);
   return user;
@@ -128,6 +144,7 @@ export async function signUp(
     email: data.user.email,
     profile_picture: data.user.profile_picture || "",
     provider: data.user.provider || "password",
+    sessionId: generateSessionId(),
   };
   setSession(user);
   return user;
@@ -153,7 +170,18 @@ export async function signOut(): Promise<void> {
   } catch (err) {
     console.warn("Backend logout error:", err);
   }
+  // Clear any cached profile data from browser storage and reset session
+  if (typeof window !== "undefined") {
+    try {
+      sessionStorage.clear();
+    } catch {
+      // ignore
+    }
+  }
   setSession(null);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("skillforge-profile-update"));
+  }
 }
 
 export function useAuth() {
