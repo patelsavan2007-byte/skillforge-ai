@@ -39,12 +39,24 @@ class ResumeNERService:
                 model=self.model_name,
                 aggregation_strategy="simple"
             )
+            # oksomu/resume-ner is DistilBERT-based.  Some tokenizer versions
+            # emit token_type_ids although DistilBertForTokenClassification does
+            # not accept them.  Remove that optional input at the tokenizer /
+            # pipeline boundary rather than changing the model or disabling NER.
+            input_names = list(getattr(self.pipe.tokenizer, "model_input_names", []))
+            if "token_type_ids" in input_names:
+                self.pipe.tokenizer.model_input_names = [
+                    name for name in input_names if name != "token_type_ids"
+                ]
+                logger.info("Disabled unsupported token_type_ids for %s", self.model_name)
             print(f"Model {self.model_name} loaded successfully!")
             logger.info("Model %s loaded successfully", self.model_name)
         except Exception as e:
             logger.error("Failed to load NER model %s: %s", self.model_name, str(e))
             print(f"Error loading NER model {self.model_name}: {e}")
-            raise RuntimeError(f"Could not load Hugging Face model {self.model_name}: {e}")
+            # Keep the extraction pipeline available with deterministic parsing when
+            # a model download is unavailable. Gemini is never used as a fallback.
+            self.pipe = None
 
     def preprocess_text(self, text: str) -> str:
         """Normalize resume text before running NER inference."""
@@ -105,11 +117,10 @@ class ResumeNERService:
 
     def extract_entities(self, text: str) -> List[Dict[str, Any]]:
         """Preprocess text, chunk if long, run model inference, and return clean JSON entities."""
-        if not self.pipe:
-            self._load_model()
-
         clean_text = self.preprocess_text(text)
         if not clean_text:
+            return []
+        if not self.pipe:
             return []
 
         chunks = self.chunk_text(clean_text)

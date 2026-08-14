@@ -1,21 +1,12 @@
 import logging
 from typing import Dict, Any, List, Optional
-from app.services.gemini_service import merge_profiles_with_gemini
+from app.services.resume_extractor import normalize_skills
 
 logger = logging.getLogger("skillforge.profile_merge")
 
 def _normalize_list(items: List[Any]) -> List[str]:
-    """Helper to convert items to clean deduplicated strings preserving original casing."""
-    seen = set()
-    result = []
-    for item in items:
-        if isinstance(item, str) and item.strip():
-            s = item.strip()
-            lower = s.lower()
-            if lower not in seen:
-                seen.add(lower)
-                result.append(s)
-    return result
+    """Canonical, case-insensitive de-duplication shared with extraction."""
+    return normalize_skills(items)
 
 def _merge_projects(r_projects: List[Dict[str, Any]], p_projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Merge project arrays from resume and portfolio without duplicating."""
@@ -78,21 +69,13 @@ def merge_student_profiles(
     - Both
     - Raises ValueError if neither exists
     """
-    has_resume = bool(resume_profile and (resume_profile.get("skills") or resume_profile.get("personal") or resume_profile.get("projects")))
-    has_portfolio = bool(portfolio_profile and (portfolio_profile.get("skills") or portfolio_profile.get("projects") or portfolio_profile.get("bio")))
+    has_resume = bool(resume_profile and (resume_profile.get("skills") or resume_profile.get("technologies") or resume_profile.get("personal") or resume_profile.get("projects")))
+    has_portfolio = bool(portfolio_profile and (portfolio_profile.get("skills") or portfolio_profile.get("technologies") or portfolio_profile.get("projects") or portfolio_profile.get("bio")))
 
     if not has_resume and not has_portfolio:
         raise ValueError("At least one profile source (Resume or Portfolio) is required to run analysis.")
 
-    # Try Gemini intelligent profile merge if both exist
-    if has_resume and has_portfolio:
-        gemini_merged = merge_profiles_with_gemini(resume_profile, portfolio_profile)
-        if gemini_merged and gemini_merged.get("skills"):
-            gemini_merged["source"] = {"resume": True, "portfolio": True}
-            gemini_merged["skills"] = _normalize_list(gemini_merged.get("skills", []))
-            gemini_merged["technologies"] = _normalize_list(gemini_merged.get("technologies", []))
-            return gemini_merged
-
+    # PRIMARY: Deterministic merge of resume and portfolio profiles
     r_prof = resume_profile or {}
     p_prof = portfolio_profile or {}
 
@@ -101,13 +84,14 @@ def merge_student_profiles(
     name = r_personal.get("name") or r_prof.get("name") or p_prof.get("name") or "Student Candidate"
 
     # Extract & deduplicate skills and technologies
-    r_skills = r_prof.get("skills", [])
-    p_skills = p_prof.get("skills", [])
-    all_skills = _normalize_list(r_skills + p_skills)
-
     r_techs = r_prof.get("technologies", [])
     p_techs = p_prof.get("technologies", [])
-    all_techs = _normalize_list(r_techs + p_techs + all_skills)
+    r_skills = r_prof.get("skills", [])
+    p_skills = p_prof.get("skills", [])
+    # `skills` is the canonical candidate capability field.  Include legacy
+    # `technologies` too so older MongoDB documents cannot lose evidence.
+    all_skills = _normalize_list(r_skills + r_techs + p_skills + p_techs)
+    all_techs = list(all_skills)
 
     # Education & Experience (prefer resume as primary source)
     education = r_prof.get("education") or p_prof.get("education") or []

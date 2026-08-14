@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     MONGODB_URI: str = ""
     MONGODB_DATABASE: str = "skillforge"
     ENVIRONMENT: str = "development"
+    ALLOW_MONGOMOCK: bool = False
     RESUME_NER_MODEL: str = "oksomu/resume-ner"
     RESUME_NER_MIN_CONFIDENCE: float = 0.60
     GEMINI_API_KEY: str = ""

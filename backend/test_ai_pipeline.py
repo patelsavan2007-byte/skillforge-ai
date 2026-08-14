@@ -6,7 +6,8 @@ BASE_URL = "http://localhost:8000"
 
 class TestAIPipeline(unittest.TestCase):
     def setUp(self):
-        self.client = httpx.Client(base_url=BASE_URL, timeout=15.0)
+        self.client = httpx.Client(base_url=BASE_URL, timeout=60.0)
+
         # Unique user per test keeps test records isolated and repeatable.
         self.user_id = f"test_user_pipeline_{uuid.uuid4().hex[:12]}"
 
@@ -80,6 +81,12 @@ class TestAIPipeline(unittest.TestCase):
         unified = res["data"]["unifiedProfile"]
         self.assertTrue(unified["source"]["resume"])
         self.assertIn("skills", unified)
+        self.assertTrue(unified["skills"])
+        self.assertIn("Python", unified["skills"])
+        self.assertIn("React", unified["skills"])
+        career = res["data"]["careerProfile"]
+        self.assertIn("user_strengths", career)
+        self.assertIn("true_skill_gaps", career)
 
     def test_06_merged_resume_and_portfolio(self):
         headers = {"X-User-ID": self.user_id}

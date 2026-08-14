@@ -15,3 +15,7 @@ google-genai
 python-multipart
 pandas
 numpy
+# Resume NER (oksomu/resume-ner) and E5 semantic retrieval
+transformers>=4.46,<6
+sentence-transformers>=3.3
+torch>=2.6

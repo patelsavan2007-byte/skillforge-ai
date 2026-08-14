@@ -33,10 +33,13 @@ def connect_to_mongodb():
     """Establish connection to MongoDB Atlas/server, verify with ping, and build indexes."""
     db_name = settings.MONGODB_DATABASE or "skillforge"
     uri = settings.MONGODB_URI
+    allow_mock = settings.ALLOW_MONGOMOCK or settings.ENVIRONMENT.lower() in {"development", "test", "testing"}
     
     if not uri:
-        print("MONGODB_URI is not set. Falling back to in-memory mongomock.")
-        logger.warning("MONGODB_URI is not set. Falling back to in-memory mongomock.")
+        if not allow_mock:
+            raise RuntimeError("MONGODB_URI is required in production.")
+        print("MONGODB_URI is not set; using explicitly allowed in-memory mongomock.")
+        logger.warning("Using explicitly allowed mongomock because MONGODB_URI is not set.")
         try:
             import mongomock
             db_manager.client = mongomock.MongoClient()
@@ -97,6 +100,9 @@ def connect_to_mongodb():
         else:
             print(f"MongoDB connection FAILED — {err_type}")
             logger.error("MongoDB connection failed (%s): %s", err_type, err_str[:200])
+
+        if not allow_mock:
+            raise RuntimeError("MongoDB Atlas connection failed in production; persistence was not initialized.") from e
 
         try:
             import mongomock

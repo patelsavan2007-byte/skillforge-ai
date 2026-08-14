@@ -145,6 +145,7 @@ function Index() {
           unifiedProfile: pipelineData.unifiedProfile,
           careerProfile: pipelineData.careerProfile,
           learningPath: pipelineData.learningPath,
+          progress: pipelineData.progress,
         });
 
         setTimeout(() => navigate({ to: "/analysis" }), 400);

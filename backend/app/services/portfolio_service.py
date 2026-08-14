@@ -5,7 +5,6 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.database.mongodb import get_portfolios_collection
-from app.services.gemini_service import analyze_portfolio_with_gemini
 from app.utils.object_id import validate_object_id, serialize_doc, serialize_docs
 
 logger = logging.getLogger("skillforge.portfolio")
@@ -21,7 +20,7 @@ COMMON_SKILL_KEYWORDS = [
 async def analyze_portfolio_url(url: str) -> Dict[str, Any]:
     """
     Fetch and analyze public portfolio/GitHub URL.
-    Parses visible text and metadata with BeautifulSoup and uses Gemini (or heuristic parser) for structured profile extraction.
+    Parses visible text and metadata with BeautifulSoup and uses deterministic heuristics for structured profile extraction.
     Handles timeouts, HTTP errors, non-HTML responses, and invalid URLs gracefully.
     """
     cleaned_url = url.strip()
@@ -65,16 +64,9 @@ async def analyze_portfolio_url(url: str) -> Dict[str, Any]:
         logger.warning(f"Portfolio URL fetch error for {cleaned_url}: {e}")
         page_text = f"Analysis of portfolio URL: {cleaned_url}"
 
-    # Try Gemini analysis if Gemini API is available
-    if len(page_text) > 50:
-        gemini_result = analyze_portfolio_with_gemini(cleaned_url, page_text)
-        if gemini_result and (gemini_result.get("skills") or gemini_result.get("projects")):
-            return gemini_result
-
-    # HEURISTIC FALLBACK IF GEMINI IS NOT AVAILABLE OR FAILED
+    # PRIMARY: Deterministic heuristic extraction from scraped content
     detected_skills = [skill for skill in COMMON_SKILL_KEYWORDS if skill.lower() in page_text.lower()]
-    if not detected_skills:
-        detected_skills = ["React", "JavaScript", "Python", "FastAPI", "MongoDB"]
+    # An empty scrape is not evidence of skills. Do not synthesize a profile.
 
     extracted_projects = []
     for idx, heading in enumerate(headings[:4]):
@@ -87,18 +79,9 @@ async def analyze_portfolio_url(url: str) -> Dict[str, Any]:
                 "url": cleaned_url
             })
 
-    if not extracted_projects:
-        extracted_projects = [{
-            "name": title if title else "Full Stack Portfolio Project",
-            "description": f"Personal developer portfolio & project showcase at {cleaned_url}.",
-            "technologies": detected_skills[:4],
-            "github": cleaned_url,
-            "url": cleaned_url
-        }]
-
     return {
-        "name": title if title and len(title) < 40 else "Developer Candidate",
-        "bio": f"Developer portfolio analyzed from {cleaned_url}.",
+        "name": title if title and len(title) < 40 else "",
+        "bio": f"Portfolio analyzed from {cleaned_url}." if page_text else "",
         "skills": detected_skills,
         "projects": extracted_projects,
         "technologies": detected_skills,

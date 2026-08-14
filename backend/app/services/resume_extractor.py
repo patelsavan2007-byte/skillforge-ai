@@ -4,6 +4,77 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger("skillforge.resume_extractor")
 
+# This vocabulary is deliberately conservative: it recognises technologies and
+# well-known skill phrases, but never treats arbitrary prose as a skill.  It is
+# used as a deterministic safety net when the NER model is unavailable.
+SKILL_VOCABULARY = {
+    "Python": ("python", "python 3", "python3"),
+    "Java": ("java",),
+    "JavaScript": ("javascript", "js", "ecmascript"),
+    "TypeScript": ("typescript", "ts"),
+    "C++": ("c++", "cpp"), "C#": ("c#", "c sharp"), "Kotlin": ("kotlin",),
+    "React Native": ("react native",), "React": ("react", "reactjs", "react.js"),
+    "Flask": ("flask",), "FastAPI": ("fastapi", "fast api"), "Django": ("django",),
+    "Node.js": ("node.js", "nodejs", "node js"), "Express": ("express", "express.js", "expressjs"),
+    "MongoDB": ("mongodb", "mongo db", "mongo"), "MySQL": ("mysql", "my sql"),
+    "PostgreSQL": ("postgresql", "postgres", "postgre sql"), "SQL": ("sql",),
+    "TensorFlow": ("tensorflow", "tensor flow", "tf"), "PyTorch": ("pytorch", "py torch", "torch"),
+    "Keras": ("keras",), "scikit-learn": ("scikit-learn", "scikit learn", "sklearn"),
+    "OpenCV": ("opencv", "open cv"), "CNN": ("cnn", "convolutional neural network"),
+    "NLP": ("nlp", "natural language processing"), "Machine Learning": ("machine learning",),
+    "Deep Learning": ("deep learning",), "Docker": ("docker",), "Git": ("git",),
+    "GitHub": ("github",), "AWS": ("aws", "amazon web services"), "Azure": ("azure",),
+    "GCP": ("gcp", "google cloud", "google cloud platform"), "Figma": ("figma",),
+    "HTML": ("html",), "CSS": ("css",), "Tailwind": ("tailwind", "tailwind css", "tailwindcss"),
+    "REST API": ("rest api", "restful api", "restful apis"), "OAuth": ("oauth",),
+    "Google OAuth": ("google oauth",), "Firebase": ("firebase",),
+}
+
+
+def normalize_skills(skills: List[Any]) -> List[str]:
+    """Return canonical, stable, duplicate-free skill names from known values."""
+    aliases = {
+        alias.casefold(): canonical
+        for canonical, variants in SKILL_VOCABULARY.items()
+        for alias in variants
+    }
+    result: List[str] = []
+    seen = set()
+    for value in skills:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        cleaned = value.strip()
+        canonical = aliases.get(cleaned.casefold(), cleaned)
+        key = canonical.casefold()
+        if key not in seen:
+            seen.add(key)
+            result.append(canonical)
+    return result
+
+
+def extract_controlled_skills(raw_text: str) -> List[str]:
+    """Find only controlled vocabulary entries anywhere in resume evidence."""
+    found: List[tuple[int, int, str]] = []
+    for canonical, variants in SKILL_VOCABULARY.items():
+        positions = []
+        for variant in variants:
+            match = re.search(rf"(?<![\w+#]){re.escape(variant)}(?![\w+#])", raw_text, re.IGNORECASE)
+            if match:
+                positions.append((match.start(), match.end()))
+        if positions:
+            start, end = min(positions)
+            found.append((start, end, canonical))
+    # Prefer the longest match at a position and reject overlapping aliases:
+    # "React Native" must never also emit "React", and Google OAuth should
+    # not be duplicated as generic OAuth from the same evidence.
+    result: List[str] = []
+    occupied_until = -1
+    for start, end, skill in sorted(found, key=lambda item: (item[0], -(item[1] - item[0]))):
+        if start >= occupied_until:
+            result.append(skill)
+            occupied_until = end
+    return result
+
 
 def extract_academic_scores(text: str) -> Dict[str, Optional[float]]:
     """Deterministic parser for academic scores (SGPA, CGPA, GPA)."""
@@ -168,6 +239,23 @@ def extract_projects_from_text(raw_text: str, extracted_skills: List[str]) -> Li
     return projects
 
 
+def extract_skills_from_text(raw_text: str) -> List[str]:
+    """Recover explicit skills and controlled technologies when NER is unavailable."""
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    candidates: List[str] = []
+    for index, line in enumerate(lines):
+        if re.match(r"(?i)^skills?\s*[:\-]", line):
+            candidates.append(re.sub(r"(?i)^skills?\s*[:\-]\s*", "", line))
+        elif re.match(r"(?i)^skills?$", line) and index + 1 < len(lines):
+            candidates.append(lines[index + 1])
+    values: List[str] = []
+    for candidate in candidates:
+        values.extend(value.strip() for value in re.split(r"[,|;/]", candidate) if value.strip())
+    # Explicit skills retain backwards-compatible unknown entries; controlled
+    # scanning additionally preserves technology evidence in projects/prose.
+    return normalize_skills(values + extract_controlled_skills(raw_text))
+
+
 def build_structured_resume(raw_text: str, entities: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Combine NER entities and deterministic rules into normalized resume profile JSON."""
     
@@ -268,15 +356,10 @@ def build_structured_resume(raw_text: str, entities: List[Dict[str, Any]]) -> Di
 
     # 6. Skills (Normalized & Deduplicated)
     raw_skills = [e["text"] for e in grouped.get("SKILL", [])]
-    normalized_skills = []
-    seen_skills = set()
-
-    for s in raw_skills:
-        clean_s = s.strip()
-        lower_s = clean_s.lower()
-        if lower_s not in seen_skills and len(clean_s) >= 2:
-            seen_skills.add(lower_s)
-            normalized_skills.append(clean_s)
+    normalized_skills = normalize_skills(raw_skills)
+    # NER can be partial even when it succeeds, so merge the deterministic
+    # evidence instead of using it only as an all-or-nothing fallback.
+    normalized_skills = normalize_skills(normalized_skills + extract_skills_from_text(raw_text))
 
     # 7. Certifications
     certifications = list(dict.fromkeys([e["text"].strip() for e in grouped.get("CERT", []) if e["text"].strip()]))

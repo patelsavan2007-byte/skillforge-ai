@@ -30,14 +30,6 @@ import {
 } from "@/components/ui/dialog";
 
 import {
-  extractedSkills,
-  portfolioFeedback,
-  portfolioProjects,
-  profileSummary as mockSummary,
-  readiness as mockReadiness,
-  skillGap as mockSkillGap,
-} from "@/lib/mock-data";
-import {
   useProfile,
   saveProfile,
 } from "@/lib/profile-store";
@@ -67,8 +59,10 @@ export const Route = createFileRoute("/analysis")({
 function AnalysisPage() {
   const profile = useProfile();
   const role = profile?.careerProfile?.targetRole || profile?.role || "AI/ML Engineer";
-  const readiness = profile?.careerProfile?.careerReadiness ?? mockReadiness;
-  const summary = profile?.careerProfile?.profileSummary || mockSummary;
+
+  // Use only real API data — no mock fallbacks
+  const readiness = profile?.careerProfile?.careerReadiness ?? 0;
+  const summary = profile?.careerProfile?.profileSummary || null;
 
   const unified = profile?.unifiedProfile;
   const career = profile?.careerProfile;
@@ -95,7 +89,7 @@ function AnalysisPage() {
           <span className="inline-flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary"><FileText className="size-7" /></span>
           <h1 className="mt-6 text-3xl font-bold">Start with your career profile</h1>
           <p className="mx-auto mt-3 max-w-lg text-muted-foreground">Upload a resume or add a public portfolio link first. Once we have your information, your personalized analysis will appear here.</p>
-          <Button asChild size="lg" className="glow mt-8 bg-gradient-accent text-primary-foreground"><Link to="/">Upload & start analysis <ArrowRight className="size-4" /></Link></Button>
+          <Button asChild size="lg" className="glow mt-8 bg-gradient-accent text-primary-foreground"><Link to="/">Upload &amp; start analysis <ArrowRight className="size-4" /></Link></Button>
         </section>
       </main>
     );
@@ -137,10 +131,30 @@ function AnalysisPage() {
     }
   }
 
-  const displaySkills = unified?.skills && unified.skills.length > 0 ? unified.skills : extractedSkills.map((s) => s.name);
-  const strongSkills = career?.strongSkills && career.strongSkills.length > 0 ? career.strongSkills : mockSkillGap.strong;
-  const developingSkills = career?.developingSkills && career.developingSkills.length > 0 ? career.developingSkills : mockSkillGap.improve;
-  const criticalGaps = career?.skillGaps && career.skillGaps.length > 0 ? career.skillGaps.map(g => g.skill) : mockSkillGap.critical;
+  // Display skills strictly from real unified profile — empty state if none
+  const displaySkills = unified?.skills && unified.skills.length > 0 ? unified.skills : [];
+
+  // Prefer deterministic user_strengths; then Gemini strongSkills; never mock data
+  const strongSkills =
+    career?.user_strengths && career.user_strengths.length > 0
+      ? career.user_strengths
+      : career?.strongSkills && career.strongSkills.length > 0
+        ? career.strongSkills
+        : [];
+
+  // Real developing skills from API only
+  const developingSkills = career?.developingSkills && career.developingSkills.length > 0
+    ? career.developingSkills
+    : [];
+
+  // Prefer deterministic true_skill_gaps; then Gemini skillGaps; never mock data
+  const criticalGaps =
+    career?.true_skill_gaps && career.true_skill_gaps.length > 0
+      ? career.true_skill_gaps
+      : career?.skillGaps && career.skillGaps.length > 0
+        ? career.skillGaps.map((g) => g.skill)
+        : [];
+
 
   return (
     <main className="hero-glow min-h-screen">
@@ -204,36 +218,48 @@ function AnalysisPage() {
 
         {/* Profile Summary */}
         <Panel className="mt-6" title="Profile Evaluation & Summary" icon={<Sparkles className="size-4" />}>
-          <p className="text-lg leading-relaxed text-foreground/90">{summary}</p>
+          {summary ? (
+            <p className="text-lg leading-relaxed text-foreground/90">{summary}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground italic">No profile summary available. Run a career analysis to generate your evaluation.</p>
+          )}
         </Panel>
 
         {/* Unified Skills & Projects */}
         <div className="mt-6 grid gap-6 lg:grid-cols-5">
           <Panel className="lg:col-span-3" title="Unified Extracted Skills">
-            <div className="flex flex-wrap gap-2">
-              {displaySkills.map((skill, idx) => (
-                <Badge
-                  key={idx}
-                  variant="outline"
-                  className="rounded-lg border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-medium text-foreground hover:border-primary"
-                >
-                  <span className="grid size-4 place-items-center rounded bg-primary/20 text-[9px] font-bold text-primary">{skill.slice(0, 1)}</span>
-                  {skill}
-                </Badge>
-              ))}
-            </div>
+            {displaySkills.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {displaySkills.map((skill, idx) => (
+                  <Badge
+                    key={idx}
+                    variant="outline"
+                    className="rounded-lg border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-medium text-foreground hover:border-primary"
+                  >
+                    <span className="grid size-4 place-items-center rounded bg-primary/20 text-[9px] font-bold text-primary">{skill.slice(0, 1)}</span>
+                    {skill}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">No skills detected. Add a resume or portfolio to extract your skills.</p>
+            )}
 
             <div className="mt-6 space-y-4">
               <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
                 Strong Target Role Skills
               </p>
-              <div className="flex flex-wrap gap-2">
-                {strongSkills.map((s, i) => (
-                  <Badge key={i} className="bg-success/20 text-success border-success/30">
-                    ✓ {s}
-                  </Badge>
-                ))}
-              </div>
+              {strongSkills.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {strongSkills.map((s, i) => (
+                    <Badge key={i} className="bg-success/20 text-success border-success/30">
+                      ✓ {s}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">No matching role skills detected yet.</p>
+              )}
             </div>
           </Panel>
 
@@ -263,17 +289,7 @@ function AnalysisPage() {
                 ))}
               </ul>
             ) : (
-              <ul className="space-y-3">
-                {portfolioProjects.map((p) => (
-                  <li key={p.title} className="flex items-start gap-3 rounded-xl border border-border bg-surface-2/60 p-3">
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-                    <div>
-                      <p className="text-sm font-medium">{p.title}</p>
-                      <p className="text-xs text-muted-foreground">{p.stack}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <p className="text-sm text-muted-foreground italic">No projects detected. Add a GitHub or portfolio URL to analyze your projects.</p>
             )}
           </Panel>
         </div>
